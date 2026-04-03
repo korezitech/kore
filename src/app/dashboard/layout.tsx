@@ -19,7 +19,6 @@ import {
   ChevronRight
 } from "lucide-react";
 
-// We keep the main navigation items here
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Transactions", href: "/dashboard/transactions", icon: ArrowRightLeft },
@@ -33,20 +32,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false); // State for desktop sidebar
+  const [isCollapsed, setIsCollapsed] = useState(false); 
 
   useEffect(() => setMounted(true), []);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-slate-950 transition-colors duration-300">
+    // Changed h-screen to h-[100dvh] to fix mobile browser cut-offs
+    <div className="flex h-[100dvh] overflow-hidden bg-slate-100 dark:bg-slate-950 transition-colors duration-300">
       
-      {/* DESKTOP SIDEBAR - Hidden on mobile, collapsible on desktop */}
+      {/* DESKTOP SIDEBAR */}
       <aside 
         className={`hidden md:flex flex-col m-4 glass-panel transition-all duration-300 relative ${
           isCollapsed ? "w-20" : "w-64"
         }`}
       >
-        {/* Collapse Toggle Button */}
         <button 
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="absolute -right-3 top-8 bg-slate-200 dark:bg-slate-800 rounded-full p-1 border border-slate-300 dark:border-slate-700 hover:scale-110 transition-transform z-10"
@@ -54,7 +53,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
 
-        {/* Logo Area */}
         <div className={`p-6 flex items-center border-b border-black/5 dark:border-white/10 ${isCollapsed ? "justify-center px-0" : ""}`}>
           {isCollapsed ? (
              <div className="w-8 h-8 rounded-lg bg-[var(--color-brand-deep)] flex items-center justify-center text-white font-bold text-xl">
@@ -68,7 +66,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
         </div>
         
-        {/* Desktop Navigation Links */}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto overflow-x-hidden">
           {navigation.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -92,7 +89,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        {/* Logout Button */}
         <div className="p-4 border-t border-black/5 dark:border-white/10">
           <button title="Logout" className={`flex items-center gap-3 py-3 w-full rounded-xl text-slate-600 hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/5 transition-all ${isCollapsed ? "justify-center px-0" : "px-4"}`}>
             <LogOut className="w-5 h-5 flex-shrink-0" />
@@ -102,10 +98,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* MAIN CONTENT AREA */}
-      {/* Added pb-24 on mobile so the floating menu doesn't cover content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden pb-20 md:pb-0">
+      {/* Increased bottom padding (pb-28) on mobile so content never hides behind the floating menu */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden pb-28 md:pb-0">
         
-        {/* Top Header */}
         <header className="h-24 flex items-center justify-between px-6 md:px-8">
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-white capitalize truncate">
             {pathname === "/dashboard" ? "Overview" : pathname.split("/").pop()}
@@ -129,28 +124,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Dashboard Widgets Go Here */}
         <div className="flex-1 overflow-auto px-6 md:px-8 pt-0">
           {children}
         </div>
       </main>
 
-      {/* MOBILE FLOATING BOTTOM MENU */}
-      <nav className="md:hidden fixed bottom-4 left-4 right-4 glass-panel flex items-center justify-around p-2 z-50">
+      {/* MOBILE FLOATING BOTTOM MENU (Icon Only) */}
+      <nav className="md:hidden fixed bottom-6 left-4 right-4 glass-panel flex items-center justify-between px-4 py-3 z-50 shadow-2xl">
         {navigation.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.name}
               href={item.href}
-              className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              title={item.name} // Keeps accessibility for screen readers
+              className={`flex items-center justify-center w-12 h-12 rounded-2xl transition-all ${
                 isActive 
-                  ? "text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)]" 
+                  ? "bg-[var(--color-brand-deep)]/20 text-[var(--color-brand-deep)] dark:bg-[var(--color-brand-deep)]/30 dark:text-white shadow-inner" 
                   : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
               }`}
             >
-              <item.icon className="w-6 h-6 mb-1" />
-              <span className="text-[10px] font-medium">{item.name}</span>
+              <item.icon className={`w-6 h-6 transition-transform ${isActive ? 'scale-110' : ''}`} />
             </Link>
           );
         })}
