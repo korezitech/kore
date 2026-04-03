@@ -1,26 +1,19 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* This is the magic line! It tells Tailwind v4 to listen to our theme toggle button */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-deep: #c77dff;
+  --color-brand-light: #7b2cbf;
+  --font-sans: var(--font-fredoka); 
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* We removed the hardcoded body colors here because layout.tsx is handling them dynamically */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer utilities {
+  /* We updated the glass panel so it adapts to both light and dark mode automatically */
+  .glass-panel {
+    @apply bg-white/60 dark:bg-white/5 backdrop-blur-lg border border-white/40 dark:border-white/10 shadow-xl dark:shadow-2xl rounded-2xl;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
