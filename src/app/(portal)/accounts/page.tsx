@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, MoreHorizontal, Trash2 } from "lucide-react";
+import { Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, MoreHorizontal, Trash2, Eye, EyeOff } from "lucide-react";
 
 // Updated dummy data with currency codes for easier editing
 const dummyAccounts = [
@@ -14,6 +14,9 @@ const dummyAccounts = [
 ];
 
 export default function AccountsPage() {
+  // Privacy mode state
+  const [showAmounts, setShowAmounts] = useState(true);
+
   // Drawer visibility and mode state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"add" | "edit">("add");
@@ -57,7 +60,16 @@ export default function AccountsPage() {
       {/* HEADER */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">My Accounts</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">My Accounts</h2>
+            <button 
+              onClick={() => setShowAmounts(!showAmounts)} 
+              className="text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors p-1 mt-1"
+              title={showAmounts ? "Hide amounts" : "Show amounts"}
+            >
+              {showAmounts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
           <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">Manage your fiat, business, and credit portfolios.</p>
         </div>
         <button 
@@ -91,7 +103,9 @@ export default function AccountsPage() {
                 </div>
                 <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
                 <p className="text-xs text-slate-400 mb-3">•••• {acc.accountTail}</p>
-                <h4 className="text-2xl font-bold text-slate-900 dark:text-white">{acc.symbol}{formatBalance(acc.balance)}</h4>
+                <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
+                </h4>
               </div>
             ))}
           </div>
@@ -117,7 +131,9 @@ export default function AccountsPage() {
                 </div>
                 <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
                 <p className="text-xs text-slate-400 mb-3">{acc.accountTail}</p>
-                <h4 className="text-2xl font-bold text-slate-900 dark:text-white">{acc.symbol}{formatBalance(acc.balance)}</h4>
+                <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
+                </h4>
               </div>
             ))}
           </div>
@@ -143,7 +159,9 @@ export default function AccountsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">{acc.symbol}{formatBalance(acc.balance)}</h4>
+                    <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
+                      {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
+                    </h4>
                     <button 
                       onClick={() => openEditDrawer(acc)}
                       className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
@@ -174,7 +192,9 @@ export default function AccountsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{acc.symbol}{formatBalance(acc.balance)}</h4>
+                    <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                      {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
+                    </h4>
                     <button 
                       onClick={() => openEditDrawer(acc)}
                       className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"

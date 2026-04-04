@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { 
   TrendingUp, TrendingDown, PieChart, Activity, DollarSign, 
-  Bitcoin, LineChart, Plus, X, Briefcase, RefreshCw, Trash2 
+  Bitcoin, LineChart, Plus, X, Briefcase, RefreshCw, Trash2, Eye, EyeOff 
 } from "lucide-react";
 
 // --- DUMMY DATA SPLIT BY REGION ---
@@ -37,6 +37,7 @@ const fetchLivePrices = async () => {
 };
 
 export default function InvestmentsPage() {
+  const [showAmounts, setShowAmounts] = useState(true);
   const [portfolioView, setPortfolioView] = useState<"USD" | "GBP" | "NGN">("USD");
   
   // Drawer States
@@ -164,9 +165,18 @@ export default function InvestmentsPage() {
           
           <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Total Balance</p>
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Balance</p>
+                <button 
+                  onClick={() => setShowAmounts(!showAmounts)} 
+                  className="text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors p-1 -mt-1"
+                  title={showAmounts ? "Hide amounts" : "Show amounts"}
+                >
+                  {showAmounts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <h2 className="text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight">
-                {currencySymbol}{formatMoney(totalBalance)}
+                {showAmounts ? `${currencySymbol}${formatMoney(totalBalance)}` : "••••••"}
               </h2>
             </div>
             
@@ -175,14 +185,18 @@ export default function InvestmentsPage() {
                 <TrendingUp className="w-5 h-5" />
                 <div>
                   <p className="text-[10px] font-bold uppercase opacity-80 tracking-wider">24h Return</p>
-                  <p className="text-sm font-bold">+{currencySymbol}425.50 (1.2%)</p>
+                  <p className="text-sm font-bold">
+                    {showAmounts ? `+${currencySymbol}425.50 (1.2%)` : "•••••• (1.2%)"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-[var(--color-brand-deep)] bg-[var(--color-brand-deep)]/10 dark:text-[var(--color-brand-light)] dark:bg-[#2A1B3D]/90 backdrop-blur-md px-3 py-2 rounded-xl shadow-sm border border-[var(--color-brand-deep)]/20">
                 <Activity className="w-5 h-5" />
                 <div>
                   <p className="text-[10px] font-bold uppercase opacity-80 tracking-wider">All Time P&L</p>
-                  <p className="text-sm font-bold">{allTimePnL >= 0 ? "+" : ""}{currencySymbol}{formatMoney(allTimePnL)} ({formatMoney(pnlPercentage)}%)</p>
+                  <p className="text-sm font-bold">
+                    {showAmounts ? `${allTimePnL >= 0 ? "+" : ""}${currencySymbol}${formatMoney(allTimePnL)} (${formatMoney(pnlPercentage)}%)` : "••••••"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -259,7 +273,9 @@ export default function InvestmentsPage() {
                   </div>
                 </div>
                 <div className="md:hidden text-right">
-                  <p className="text-sm font-bold text-slate-900 dark:text-white">{currencySymbol}{formatMoney(asset.shares * asset.price)}</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white">
+                    {showAmounts ? `${currencySymbol}${formatMoney(asset.shares * asset.price)}` : "••••••"}
+                  </p>
                   <p className={`text-xs font-bold mt-0.5 ${asset.isPositive ? "text-emerald-500" : "text-rose-500"}`}>
                     {asset.isPositive ? "+" : ""}{asset.change24h}%
                   </p>
@@ -267,14 +283,16 @@ export default function InvestmentsPage() {
               </div>
 
               <div className="hidden md:block col-span-2 text-right font-medium text-slate-700 dark:text-slate-300">
-                {currencySymbol}{formatMoney(asset.price)}
+                {showAmounts ? `${currencySymbol}${formatMoney(asset.price)}` : "••••••"}
               </div>
               <div className="hidden md:block col-span-2 text-right">
-                <span className="font-medium text-slate-900 dark:text-white">{asset.shares}</span>
+                <span className="font-medium text-slate-900 dark:text-white">
+                  {showAmounts ? asset.shares : "••••••"}
+                </span>
                 <span className="text-xs text-slate-500 dark:text-slate-400 ml-1">{asset.ticker}</span>
               </div>
               <div className="hidden md:block col-span-2 text-right font-bold text-slate-900 dark:text-white">
-                {currencySymbol}{formatMoney(asset.shares * asset.price)}
+                {showAmounts ? `${currencySymbol}${formatMoney(asset.shares * asset.price)}` : "••••••"}
               </div>
               <div className="hidden md:flex col-span-2 justify-end">
                 <span className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold ${

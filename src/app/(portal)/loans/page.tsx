@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { 
   Landmark, Plus, X, Home, Car, CreditCard, Banknote, 
-  Calendar, ShieldCheck, TrendingDown, CheckCircle2, Loader2, Sparkles, AlertTriangle
+  Calendar, ShieldCheck, TrendingDown, CheckCircle2, Loader2, Sparkles, AlertTriangle, Eye, EyeOff
 } from "lucide-react";
 
 // Robust dummy data
@@ -15,6 +15,9 @@ const loansData = [
 ];
 
 export default function LoansPage() {
+  // New State for Privacy Mode
+  const [showAmounts, setShowAmounts] = useState(true);
+  
   const [baseCurrency, setBaseCurrency] = useState<"NGN" | "GBP" | "USD">("NGN");
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"add" | "manage">("add");
@@ -22,7 +25,7 @@ export default function LoansPage() {
   const [selectedLoan, setSelectedLoan] = useState<typeof loansData[0] | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Smart Form State (Added totalRepayment)
+  // Smart Form State
   const [addForm, setAddForm] = useState({
     originalAmount: "",
     currentBalance: "",
@@ -59,7 +62,7 @@ export default function LoansPage() {
     setIsDrawerOpen(true);
   };
 
-  // --- SMART CALCULATOR LOGIC (Updated to fix TS error and handle Total Repayment) ---
+  // --- SMART CALCULATOR LOGIC ---
   const calculatePayoff = () => {
     const p = parseFloat(addForm.currentBalance) || parseFloat(addForm.originalAmount) || 0;
     const pmt = parseFloat(addForm.payment) || 0;
@@ -73,12 +76,10 @@ export default function LoansPage() {
     let totalInterest = 0;
     let warningMsg = "";
 
-    // 1. If user provides Total Repayment, it overrides complex APR math
     if (totalRepay > 0) {
       n = Math.ceil(totalRepay / pmt);
       totalInterest = Math.max(0, totalRepay - p);
     } 
-    // 2. If user provides APR, do true amortization math
     else if (apr > 0) {
       const r = (apr / 100) / periodsPerYear;
       if (pmt <= p * r) {
@@ -88,7 +89,6 @@ export default function LoansPage() {
         totalInterest = (n * pmt) - p;
       }
     } 
-    // 3. 0% interest loan fallback
     else {
       n = Math.ceil(p / pmt);
       totalInterest = 0;
@@ -99,7 +99,6 @@ export default function LoansPage() {
     else if (addForm.frequency === 'yearly') payoffDate.setFullYear(payoffDate.getFullYear() + n);
     else payoffDate.setMonth(payoffDate.getMonth() + n);
 
-    // Returning a consistent object shape fixes the TypeScript error completely
     return {
       warning: warningMsg,
       payments: n,
@@ -137,7 +136,19 @@ export default function LoansPage() {
           <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div className="w-full md:w-auto">
               <div className="flex items-center justify-between md:justify-start gap-4 mb-4">
-                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Outstanding</p>
+                
+                {/* Privacy Toggle & Label */}
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Outstanding</p>
+                  <button 
+                    onClick={() => setShowAmounts(!showAmounts)} 
+                    className="text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors p-1"
+                    title={showAmounts ? "Hide amounts" : "Show amounts"}
+                  >
+                    {showAmounts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
                 <div className="flex bg-slate-200/50 dark:bg-white/5 p-1 rounded-lg shadow-inner border border-black/5 dark:border-white/5">
                   {(["NGN", "GBP", "USD"] as const).map((cur) => (
                     <button
@@ -154,8 +165,10 @@ export default function LoansPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Masked Hero Amount */}
               <h2 className="text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300">
-                {overviewData[baseCurrency].total}
+                {showAmounts ? overviewData[baseCurrency].total : "••••••"}
               </h2>
             </div>
             
@@ -164,7 +177,9 @@ export default function LoansPage() {
                 <Calendar className="w-5 h-5" />
                 <div>
                   <p className="text-[10px] font-bold uppercase opacity-80 tracking-wider">Avg Monthly Obligation</p>
-                  <p className="text-sm font-bold transition-all duration-300">~{overviewData[baseCurrency].obligation}/mo</p>
+                  <p className="text-sm font-bold transition-all duration-300">
+                    {showAmounts ? `~${overviewData[baseCurrency].obligation}/mo` : "••••••"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-slate-700 bg-slate-100 dark:text-slate-300 dark:bg-slate-800/90 backdrop-blur-md px-3 py-2 rounded-xl shadow-sm border border-slate-200 dark:border-white/10">
@@ -232,13 +247,13 @@ export default function LoansPage() {
                 <div>
                   <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Current Balance</p>
                   <h4 className="text-3xl font-bold text-slate-900 dark:text-white">
-                    {loan.currency}{formatMoney(loan.currentBalance)}
+                    {showAmounts ? `${loan.currency}${formatMoney(loan.currentBalance)}` : "••••••"}
                   </h4>
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Original</p>
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                    {loan.currency}{formatMoney(loan.originalAmount)}
+                    {showAmounts ? `${loan.currency}${formatMoney(loan.originalAmount)}` : "••••••"}
                   </p>
                 </div>
               </div>
@@ -246,7 +261,7 @@ export default function LoansPage() {
               <div className="space-y-2 mb-6">
                 <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
                   <span>{progressPercent.toFixed(1)}% Paid</span>
-                  <span>{loan.currency}{formatMoney(paidAmount)}</span>
+                  <span>{showAmounts ? `${loan.currency}${formatMoney(paidAmount)}` : "••••••"}</span>
                 </div>
                 <div className="h-2.5 w-full bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
                   <div 
@@ -262,7 +277,9 @@ export default function LoansPage() {
                   <span>Next: <strong>{loan.nextDate}</strong></span>
                 </div>
                 <span className="font-bold text-slate-900 dark:text-white">
-                  {loan.currency}{formatMoney(loan.payment)}<span className="text-xs text-slate-500">{freqSuffix}</span>
+                  {showAmounts ? (
+                    <>{loan.currency}{formatMoney(loan.payment)}<span className="text-xs text-slate-500">{freqSuffix}</span></>
+                  ) : "••••••"}
                 </span>
               </div>
             </div>
@@ -422,7 +439,6 @@ export default function LoansPage() {
                 </div>
               </div>
 
-              {/* NEW: APR and Total Repayment Fields */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Interest Rate (APR)</label>

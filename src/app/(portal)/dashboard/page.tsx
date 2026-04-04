@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { 
   Wallet, 
   TrendingUp, 
@@ -8,11 +9,22 @@ import {
   Store, 
   Sparkles, 
   ArrowUpRight,
-  ArrowDownLeft,
   Receipt,
   Plane,
-  Wifi
+  Wifi,
+  Eye,
+  EyeOff
 } from "lucide-react";
+
+// Shared data structure matching the Accounts page so the Dashboard is smart
+const dummyAccounts = [
+  { id: 1, name: "Naira Checking", type: "fiat", currencyCode: "NGN", symbol: "₦", balance: "2150000", accountTail: "4092" },
+  { id: 2, name: "GBP Vault", type: "fiat", currencyCode: "GBP", symbol: "£", balance: "15400", accountTail: "8810" },
+  { id: 3, name: "USD Savings", type: "fiat", currencyCode: "USD", symbol: "$", balance: "4200", accountTail: "1102" },
+  { id: 4, name: "Korezi Store", type: "business", currencyCode: "NGN", symbol: "₦", balance: "12450000", accountTail: "Biz" },
+  { id: 5, name: "AMEX Platinum", type: "credit", currencyCode: "USD", symbol: "$", balance: "-450", accountTail: "1005" },
+  { id: 6, name: "NGX Portfolio", type: "investment", currencyCode: "NGN", symbol: "₦", balance: "8340000", accountTail: "Stock" },
+];
 
 // Mock data for the 7 recent transactions
 const recentTransactions = [
@@ -25,7 +37,6 @@ const recentTransactions = [
   { id: 7, title: "Flight to London", category: "Travel", date: "Mar 25, 2026", amount: "-£450.00", isIncome: false, icon: Plane },
 ];
 
-// Fallback icon for the array above
 function BriefcaseIcon(props: any) {
   return (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -35,14 +46,19 @@ function BriefcaseIcon(props: any) {
 }
 
 export default function DashboardPage() {
-  // State for the currency switcher
-  const [currency, setCurrency] = useState<"NGN" | "GBP" | "USD">("NGN");
+  const [showAmounts, setShowAmounts] = useState(true);
+  const [currency, setCurrency] = useState<"₦" | "£" | "$">("₦");
+
+  const formatBalance = (val: string) => Number(val).toLocaleString();
+
+  // Find Korezi Store dynamically
+  const koreziAccount = dummyAccounts.find(acc => acc.name === "Korezi Store");
 
   // Dynamic Net Worth Data based on the switcher
   const netWorthData = {
-    NGN: { main: "₦45,231,000", sub: "≈ £22,615.50 at current mid-market rate" },
-    GBP: { main: "£22,615.50", sub: "≈ ₦45,231,000 at current mid-market rate" },
-    USD: { main: "$28,500.00", sub: "≈ ₦45,231,000 at current mid-market rate" }
+    "₦": { main: "₦45,231,000", sub: "≈ £22,615.50 at current mid-market rate" },
+    "£": { main: "£22,615.50", sub: "≈ ₦45,231,000 at current mid-market rate" },
+    "$": { main: "$28,500.00", sub: "≈ ₦45,231,000 at current mid-market rate" }
   };
 
   return (
@@ -50,27 +66,39 @@ export default function DashboardPage() {
       
       {/* TOP ROW: Total Net Worth Hero Card */}
       <div className="glass-panel p-8 relative overflow-hidden group">
-        <div className="absolute -top-6 -right-6 p-8 opacity-5 dark:opacity-10 group-hover:scale-110 transition-transform duration-500 pointer-events-none">
+        {/* Background icon */}
+        <div className="absolute -top-6 -right-6 p-8 opacity-5 dark:opacity-10 group-hover:scale-110 transition-transform duration-500 pointer-events-none z-0">
           <Wallet className="w-48 h-48 text-[var(--color-brand-deep)]" />
         </div>
         
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Net Worth</p>
             
-            {/* Currency Switcher Pill */}
+            {/* Privacy Toggle */}
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Net Worth</p>
+              <button 
+                onClick={() => setShowAmounts(!showAmounts)} 
+                className="text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors p-1"
+                title={showAmounts ? "Hide amounts" : "Show amounts"}
+              >
+                {showAmounts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            
+            {/* Currency Switcher Pill (Using Symbols) */}
             <div className="flex bg-slate-200/50 dark:bg-white/5 p-1 rounded-lg w-max shadow-inner border border-black/5 dark:border-white/5">
-              {(["NGN", "GBP", "USD"] as const).map((cur) => (
+              {(["₦", "£", "$"] as const).map((sym) => (
                 <button
-                  key={cur}
-                  onClick={() => setCurrency(cur)}
-                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
-                    currency === cur 
+                  key={sym}
+                  onClick={() => setCurrency(sym)}
+                  className={`px-4 py-1 text-sm font-bold rounded-md transition-all ${
+                    currency === sym 
                       ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" 
                       : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                   }`}
                 >
-                  {cur}
+                  {sym}
                 </button>
               ))}
             </div>
@@ -78,7 +106,7 @@ export default function DashboardPage() {
 
           <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
             <h2 className="text-5xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300">
-              {netWorthData[currency].main}
+              {showAmounts ? netWorthData[currency].main : "••••••"}
             </h2>
             <div className="flex items-center gap-1 text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg mb-1 md:mb-2 w-max shadow-sm">
               <TrendingUp className="w-4 h-4" />
@@ -86,7 +114,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-3 font-medium transition-all duration-300">
-            {netWorthData[currency].sub}
+             {showAmounts ? netWorthData[currency].sub : "Values hidden"}
           </p>
         </div>
       </div>
@@ -104,7 +132,9 @@ export default function DashboardPage() {
             </span>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-1 font-medium">Naira Checking</p>
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white">₦2,150,000</h3>
+          <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+            {showAmounts ? "₦2,150,000" : "••••••"}
+          </h3>
           <div className="flex items-center gap-1 text-emerald-500 mt-2 text-xs font-medium">
             <ArrowUpRight className="w-3 h-3" /> ₦45,000 this week
           </div>
@@ -115,17 +145,21 @@ export default function DashboardPage() {
             <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
               <Wallet className="w-5 h-5" />
             </div>
+            {/* Changed from Reserve to Personal */}
             <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-white/10 px-2.5 py-1 rounded-full shadow-sm">
-              Reserve
+              Personal
             </span>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-1 font-medium">GBP Vault</p>
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white">£15,400</h3>
+          <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+            {showAmounts ? "£15,400" : "••••••"}
+          </h3>
           <div className="flex items-center gap-1 text-slate-400 mt-2 text-xs font-medium">
             No recent activity
           </div>
         </div>
 
+        {/* Dynamic Korezi Store Card */}
         <div className="glass-panel p-6 hover:-translate-y-1 transition-transform cursor-pointer relative overflow-hidden group border-t-4 border-t-[var(--color-brand-deep)]">
           <div className="flex justify-between items-start mb-4 relative z-10">
             <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-600 dark:text-orange-400 group-hover:scale-110 transition-transform">
@@ -137,7 +171,10 @@ export default function DashboardPage() {
             </span>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-1 font-medium relative z-10">Korezi Store Revenue</p>
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white relative z-10">₦12,450,000</h3>
+          <h3 className="text-2xl font-bold text-slate-900 dark:text-white relative z-10">
+            {/* Dynamically pulling the balance from the dummyAccounts array */}
+            {showAmounts && koreziAccount ? `${koreziAccount.symbol}${formatBalance(koreziAccount.balance)}` : "••••••"}
+          </h3>
           <div className="flex items-center gap-1 text-emerald-500 mt-2 text-xs font-medium relative z-10">
             <ArrowUpRight className="w-3 h-3" /> +12% vs last month
           </div>
@@ -176,7 +213,10 @@ export default function DashboardPage() {
       <div className="glass-panel p-6 relative overflow-hidden">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">Recent Transactions</h3>
-          <button className="text-sm font-semibold text-[var(--color-brand-deep)] hover:underline">View All</button>
+          {/* Linked to Transactions Page */}
+          <Link href="/transactions" className="text-sm font-semibold text-[var(--color-brand-deep)] hover:underline">
+            View All
+          </Link>
         </div>
         
         <div className="divide-y divide-slate-100 dark:divide-white/5">
@@ -198,7 +238,7 @@ export default function DashboardPage() {
               <div className={`text-right font-bold ${
                 tx.isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white"
               }`}>
-                {tx.amount}
+                {showAmounts ? tx.amount : "••••••"}
               </div>
             </div>
           ))}
