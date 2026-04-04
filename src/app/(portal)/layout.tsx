@@ -7,11 +7,12 @@ import { useTheme } from "next-themes";
 import { useEffect, useState, useRef } from "react";
 import {
   LayoutDashboard, ArrowRightLeft, TrendingUp, HandCoins, Target, Bot,
-  Sun, Moon, LogOut, ChevronLeft, ChevronRight, Bell, Settings, User
+  Sun, Moon, LogOut, ChevronLeft, ChevronRight, Bell, Settings, User, Landmark
 } from "lucide-react";
 
 const navigation = [
   { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Accounts", href: "/accounts", icon: Landmark },
   { name: "Transactions", href: "/transactions", icon: ArrowRightLeft },
   { name: "Investments", href: "/investments", icon: TrendingUp },
   { name: "Loans & Debt", href: "/loans", icon: HandCoins },
