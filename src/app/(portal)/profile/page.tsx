@@ -144,7 +144,7 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white">Two-Factor Authentication</h4>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-md">Secure your account with an extra layer of security using an authenticator app or SMS.</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-md">Secure your account with an extra layer of security using an authenticator app or email alerts.</p>
                 </div>
               </div>
               <Switch checked={toggles.twoFactor} onChange={() => handleToggle('twoFactor')} />

@@ -7,7 +7,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState, useRef } from "react";
 import {
   LayoutDashboard, ArrowRightLeft, TrendingUp, HandCoins, Target, Bot,
-  Sun, Moon, LogOut, ChevronLeft, ChevronRight, Bell, Settings, User, Landmark
+  Sun, Moon, LogOut, ChevronLeft, ChevronRight, Bell, Settings, User, Landmark, Trash2
 } from "lucide-react";
 
 const navigation = [
@@ -203,6 +203,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   
                   <Link href="/profile" className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
                     <User className="w-4 h-4" /> Profile Settings
+                  </Link>
+                  <Link href="/recycle-bin" className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
+                    <Trash2 className="w-4 h-4" /> Recycle Bin
                   </Link>
                   <Link href="/admin" className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
                     <Settings className="w-4 h-4" /> Admin Panel
