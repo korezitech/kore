@@ -5,20 +5,21 @@ import Link from "next/link";
 import Image from "next/image";
 import { 
   Mail, Lock, Key, User, ArrowRight, ShieldCheck, 
-  ChevronLeft, Loader2, CheckCircle2 
+  ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff 
 } from "lucide-react";
-import { redeemInviteToken } from "@/actions/authActions"; // <-- Added Import
+import { redeemInviteToken } from "@/actions/authActions";
 
 export default function LoginPage() {
   const [view, setView] = useState<"login" | "redeem" | "success">("login");
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(""); // <-- Added Error State
+  const [errorMessage, setErrorMessage] = useState("");
 
   // Form States
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [fullName, setFullName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,18 +27,18 @@ export default function LoginPage() {
     setErrorMessage(""); // Clear old errors
 
     if (view === "redeem") {
-      // 1. Pack the React state into FormData for the Server Action
+      // Pack the React state into FormData for the Server Action
       const formData = new FormData();
       formData.append("token", token);
       formData.append("name", fullName);
       formData.append("email", email);
 
-      // 2. Call your Node.js API via the Next.js Server Action
+      // Call your Node.js API via the Next.js Server Action
       const result = await redeemInviteToken(formData);
 
       setIsLoading(false);
 
-      // 3. Handle the response
+      // Handle the response
       if (result.error) {
         setErrorMessage(result.error);
       } else if (result.success) {
@@ -165,14 +166,25 @@ export default function LoginPage() {
                   <div className="relative">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input 
-                      type="password" 
+                      type={showPassword ? "text" : "password"}
                       name="password"
                       required
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
+                      className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors focus:outline-none"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
                   </div>
                 </div>
               )}
