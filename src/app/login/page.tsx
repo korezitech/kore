@@ -7,10 +7,12 @@ import {
   Mail, Lock, Key, User, ArrowRight, ShieldCheck, 
   ChevronLeft, Loader2, CheckCircle2 
 } from "lucide-react";
+import { redeemInviteToken } from "@/actions/authActions"; // <-- Added Import
 
 export default function LoginPage() {
   const [view, setView] = useState<"login" | "redeem" | "success">("login");
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(""); // <-- Added Error State
 
   // Form States
   const [email, setEmail] = useState("");
@@ -18,20 +20,36 @@ export default function LoginPage() {
   const [token, setToken] = useState("");
   const [fullName, setFullName] = useState("");
 
-  const handleAction = (e: React.FormEvent) => {
+  const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setErrorMessage(""); // Clear old errors
 
-    // Simulate network request
-    setTimeout(() => {
+    if (view === "redeem") {
+      // 1. Pack the React state into FormData for the Server Action
+      const formData = new FormData();
+      formData.append("token", token);
+      formData.append("name", fullName);
+      formData.append("email", email);
+
+      // 2. Call your Node.js API via the Next.js Server Action
+      const result = await redeemInviteToken(formData);
+
       setIsLoading(false);
-      if (view === "redeem") {
+
+      // 3. Handle the response
+      if (result.error) {
+        setErrorMessage(result.error);
+      } else if (result.success) {
         setView("success");
-      } else {
-        // In the future, this will route to /dashboard upon successful NextAuth login
-        window.location.href = "/dashboard";
       }
-    }, 1500);
+    } else {
+      // Login flow (We will wire this up to NextAuth later)
+      setTimeout(() => {
+        setIsLoading(false);
+        window.location.href = "/dashboard";
+      }, 1500);
+    }
   };
 
   return (
@@ -61,7 +79,8 @@ export default function LoginPage() {
             {/* View Toggle */}
             <div className="flex bg-slate-100 dark:bg-white/5 p-1 rounded-xl mb-8 border border-slate-200 dark:border-white/5">
               <button 
-                onClick={() => setView('login')} 
+                type="button"
+                onClick={() => { setView('login'); setErrorMessage(''); }} 
                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
                   view === 'login' 
                     ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
@@ -71,7 +90,8 @@ export default function LoginPage() {
                 Log In
               </button>
               <button 
-                onClick={() => setView('redeem')} 
+                type="button"
+                onClick={() => { setView('redeem'); setErrorMessage(''); }} 
                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
                   view === 'redeem' 
                     ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
@@ -93,10 +113,11 @@ export default function LoginPage() {
                       <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input 
                         type="text" 
+                        name="token"
                         required
                         placeholder="KORE-XXXXXXXX"
                         value={token}
-                        onChange={(e) => setToken(e.target.value)}
+                        onChange={(e) => setToken(e.target.value.toUpperCase())}
                         className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono font-bold uppercase placeholder:font-sans placeholder:font-normal" 
                       />
                     </div>
@@ -107,6 +128,7 @@ export default function LoginPage() {
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input 
                         type="text" 
+                        name="name"
                         required
                         placeholder="John Doe"
                         value={fullName}
@@ -124,6 +146,7 @@ export default function LoginPage() {
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
                     type="email" 
+                    name="email"
                     required
                     placeholder="name@example.com"
                     value={email}
@@ -143,6 +166,7 @@ export default function LoginPage() {
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input 
                       type="password" 
+                      name="password"
                       required
                       placeholder="••••••••"
                       value={password}
@@ -150,6 +174,13 @@ export default function LoginPage() {
                       className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Dynamic Error Message Display */}
+              {errorMessage && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                  <p className="text-sm text-red-500 dark:text-red-400 text-center font-medium">{errorMessage}</p>
                 </div>
               )}
 
@@ -187,7 +218,13 @@ export default function LoginPage() {
               Your registration request is now pending administrator approval. You will receive an email with your secure login credentials once your account is activated.
             </p>
             <button 
-              onClick={() => setView('login')}
+              type="button"
+              onClick={() => {
+                setView('login');
+                setToken('');
+                setFullName('');
+                setEmail('');
+              }}
               className="w-full flex items-center justify-center bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-white py-3.5 rounded-xl text-sm font-bold transition-colors"
             >
               Return to Login
