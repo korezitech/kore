@@ -4,21 +4,16 @@ import { useState, useEffect } from "react";
 import { 
   Users, Activity, ShieldCheck, ArrowUpRight, Search, 
   Filter, Download, AlertCircle, Database, 
-  Server, Key, Copy, MessageCircle, Mail, UserCheck, UserX, Trash2, Edit, X, ChevronLeft, Loader2, CheckCircle2 
+  Server, Key, Copy, MessageCircle, UserCheck, Trash2, X, Loader2, CheckCircle2, Mail 
 } from "lucide-react";
-import { getPendingUsers, generateNewToken, activatePendingUser } from "@/actions/adminActions";
-
-// Mock Data for Platform Metrics (We will wire these up later)
-const platformStats = [
-  { id: 1, label: "Total Users", value: "1,245", change: "+12", isPositive: true, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-  { id: 2, label: "Pending Activations", value: "Needs Sync", change: "Action Needed", isPositive: false, icon: UserCheck, color: "text-orange-500", bg: "bg-orange-500/10" },
-  { id: 3, label: "Platform Volume (30d)", value: "₦4.2B", change: "+22.1%", isPositive: true, icon: Activity, color: "text-[var(--color-brand-deep)]", bg: "bg-[var(--color-brand-deep)]/10" },
-  { id: 4, label: "System Alerts", value: "0", change: "All Clear", isPositive: true, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-];
+import { getPendingUsers, generateNewToken, activatePendingUser, sendTokenEmail } from "@/actions/adminActions";
 
 export default function AdminPanelPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "system" | "audit">("users");
+  
+  // --- NEW: Status Filter State ---
+  const [statusFilter, setStatusFilter] = useState<"All" | "active" | "pending">("All");
 
   // Real Database State
   const [realUsers, setRealUsers] = useState<any[]>([]);
@@ -29,6 +24,8 @@ export default function AdminPanelPage() {
   const [generatedToken, setGeneratedToken] = useState("Generating...");
   const [inviteEmail, setInviteEmail] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSuccess, setEmailSuccess] = useState(false);
 
   // Manage User Drawer State
   const [isUserDrawerOpen, setIsUserDrawerOpen] = useState(false);
@@ -44,19 +41,56 @@ export default function AdminPanelPage() {
     async function loadUsers() {
       setIsLoadingUsers(true);
       const users = await getPendingUsers();
-      setRealUsers(users);
+      setRealUsers(users || []);
       setIsLoadingUsers(false);
     }
     loadUsers();
   }, []);
 
-  // Handlers
+  const pendingCount = realUsers.filter(u => u.status === 'pending').length;
+
+  const platformStats = [
+    { id: 1, label: "Total Users", value: realUsers.length.toString(), change: "Live Sync", isPositive: true, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
+    { id: 2, label: "Pending Activations", value: pendingCount.toString(), change: pendingCount > 0 ? "Action Needed" : "All Clear", isPositive: pendingCount === 0, icon: UserCheck, color: "text-orange-500", bg: "bg-orange-500/10" },
+    { id: 3, label: "Platform Volume (30d)", value: "₦0.00", change: "New Instance", isPositive: true, icon: Activity, color: "text-[var(--color-brand-deep)]", bg: "bg-[var(--color-brand-deep)]/10" },
+    { id: 4, label: "System Alerts", value: "0", change: "Secure", isPositive: true, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+  ];
+
+  // --- NEW: Filter Logic (Search + Status) ---
+  const filteredUsers = realUsers.filter(user => {
+    const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) || user.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === "All" || user.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const handleExport = () => {
+    if (filteredUsers.length === 0) return alert("No users to export.");
+    const headers = ["ID,Name,Email,Status,Date Joined"];
+    const rows = filteredUsers.map(u => `${u.id},${u.name},${u.email},${u.status || 'pending'},${new Date(u.createdAt).toLocaleDateString()}`);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "kore_users_export.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleGenerateToken = async () => {
     setIsGenerating(true);
     setGeneratedToken("Generating...");
-    const token = await generateNewToken();
-    if (token) setGeneratedToken(token);
-    else setGeneratedToken("Error generating token");
+    setInviteEmail(""); // Reset email when generating new token
+    try {
+      const token = await generateNewToken();
+      if (token) {
+        setGeneratedToken(token);
+      } else {
+        setGeneratedToken("Error generating token");
+      }
+    } catch (error) {
+      setGeneratedToken("Network Fetch Error");
+    }
     setIsGenerating(false);
   };
 
@@ -75,10 +109,28 @@ export default function AdminPanelPage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
+  const shareToEmail = async () => {
+    if (!inviteEmail || !generatedToken || generatedToken.includes('Error')) return;
+    
+    setIsSendingEmail(true);
+    setEmailSuccess(false);
+    
+    const result = await sendTokenEmail(inviteEmail, generatedToken);
+    
+    setIsSendingEmail(false);
+    
+    if (result.success) {
+      setEmailSuccess(true);
+      setTimeout(() => setEmailSuccess(false), 3000); // Turn green for 3 seconds!
+    } else {
+      alert("Failed to send email: " + result.error);
+    }
+  };
+
   const openManageUser = (user: any) => {
     setSelectedUser(user);
     setManageView("actions");
-    setNewPassword(""); // Reset password display
+    setNewPassword(""); 
     setIsUserDrawerOpen(true);
   };
 
@@ -90,8 +142,8 @@ export default function AdminPanelPage() {
     
     if (result.status === "Success") {
       setNewPassword(result.temporaryPassword);
-      // Remove them from the pending list visually
-      setRealUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+      // Update UI to show user as active without refreshing page
+      setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'active' } : u));
     } else {
       alert("Error activating user: " + result.error);
     }
@@ -101,7 +153,6 @@ export default function AdminPanelPage() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 relative min-h-[80vh]">
       
-      {/* HEADER & ACTIONS */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -111,7 +162,7 @@ export default function AdminPanelPage() {
         </div>
         
         <div className="flex items-center gap-3">
-          <button className="hidden md:flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm">
+          <button onClick={handleExport} className="hidden md:flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm">
             <Download className="w-4 h-4" /> Export
           </button>
           <button 
@@ -123,7 +174,6 @@ export default function AdminPanelPage() {
         </div>
       </div>
 
-      {/* TOP ROW: Telemetry Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {platformStats.map((stat) => (
           <div key={stat.id} className="glass-panel p-6 relative overflow-hidden group">
@@ -133,21 +183,18 @@ export default function AdminPanelPage() {
               </div>
               <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${stat.isPositive ? 'text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10' : 'text-orange-600 bg-orange-50 dark:text-orange-400 dark:bg-orange-500/10'}`}>
                 {stat.isPositive ? <ArrowUpRight className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                {stat.id === 2 ? realUsers.length + " Pending" : stat.change}
+                {stat.change}
               </span>
             </div>
             <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-1">{stat.label}</p>
             <h3 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
-              {stat.id === 2 ? realUsers.length : stat.value}
+              {stat.value}
             </h3>
           </div>
         ))}
       </div>
 
-      {/* MAIN CONTENT AREA */}
       <div className="glass-panel overflow-hidden flex flex-col">
-        
-        {/* Admin Tabs */}
         <div className="flex overflow-x-auto hide-scrollbar bg-slate-50/50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 p-2 gap-2">
           {[
             { id: "users", label: "User Directory", icon: Users },
@@ -169,27 +216,37 @@ export default function AdminPanelPage() {
           ))}
         </div>
 
-        {/* Tab Content: Users */}
         {activeTab === "users" && (
           <div className="p-6 animate-in fade-in">
-            {/* Toolbar */}
             <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
               <div className="relative w-full md:w-96">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
                   type="text" 
-                  placeholder="Search users..." 
+                  placeholder="Search users by name or email..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all"
                 />
               </div>
-              <button className="flex items-center justify-center gap-2 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors">
-                <Filter className="w-4 h-4" /> Filters
-              </button>
+              
+              {/* --- NEW: STATUS FILTER DROPDOWN --- */}
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                  <Filter className="w-4 h-4" />
+                </div>
+                <select 
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className="pl-9 pr-8 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="active">Active Users</option>
+                  <option value="pending">Pending Activations</option>
+                </select>
+              </div>
             </div>
 
-            {/* Users Table */}
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/5">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -205,17 +262,17 @@ export default function AdminPanelPage() {
                     <tr>
                       <td colSpan={4} className="p-8 text-center text-slate-500">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                        Loading database records...
+                        Loading user directory...
                       </td>
                     </tr>
-                  ) : realUsers.length === 0 ? (
+                  ) : filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="p-8 text-center text-slate-500">
-                        No pending users found in the database.
+                        No users found matching your criteria.
                       </td>
                     </tr>
                   ) : (
-                    realUsers.map((user) => (
+                    filteredUsers.map((user) => (
                       <tr key={user.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
                         <td className="p-4">
                           <div className="flex items-center gap-3">
@@ -229,10 +286,17 @@ export default function AdminPanelPage() {
                           </div>
                         </td>
                         <td className="p-4">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-500/20">
-                            <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
-                            Pending
-                          </span>
+                          {/* --- NEW: DYNAMIC STATUS BADGE --- */}
+                          {user.status === 'active' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20">
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-500/20">
+                              <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
+                              Pending
+                            </span>
+                          )}
                         </td>
                         <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden lg:table-cell">
                           {new Date(user.createdAt).toLocaleDateString()}
@@ -254,7 +318,6 @@ export default function AdminPanelPage() {
           </div>
         )}
 
-        {/* Placeholder for other tabs */}
         {activeTab !== "users" && (
           <div className="p-12 flex flex-col items-center justify-center text-center animate-in fade-in">
             <ShieldCheck className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
@@ -262,13 +325,8 @@ export default function AdminPanelPage() {
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">This module will be activated during the next backend integration phase.</p>
           </div>
         )}
-
       </div>
 
-      {/* ========================================= */}
-      {/* DRAWER: GENERATE TOKEN                      */}
-      {/* ========================================= */}
-      
       {isTokenDrawerOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
@@ -292,17 +350,18 @@ export default function AdminPanelPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          
           <div className="text-center">
             <div className="w-16 h-16 rounded-full bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] flex items-center justify-center mx-auto mb-4">
               <Key className="w-8 h-8" />
             </div>
             <h4 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Access Token</h4>
-            <div className="bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 rounded-xl flex justify-center items-center h-16">
+            <div className="bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 rounded-xl flex justify-center items-center min-h-[4rem]">
               {isGenerating ? (
                 <Loader2 className="w-6 h-6 animate-spin text-[var(--color-brand-deep)]" />
               ) : (
-                <p className="text-2xl font-mono font-bold text-slate-900 dark:text-white tracking-widest">{generatedToken}</p>
+                <p className={`text-xl font-mono font-bold tracking-widest ${generatedToken.includes('Error') ? 'text-rose-500 text-sm break-words' : 'text-slate-900 dark:text-white'}`}>
+                  {generatedToken}
+                </p>
               )}
             </div>
             <button onClick={handleGenerateToken} disabled={isGenerating} className="text-xs font-bold text-[var(--color-brand-deep)] mt-3 hover:underline disabled:opacity-50">
@@ -313,21 +372,43 @@ export default function AdminPanelPage() {
           <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-white/5">
             <h4 className="text-sm font-bold text-slate-900 dark:text-white">Share Token</h4>
             
-            <button onClick={() => copyToClipboard(generatedToken)} disabled={isGenerating} className="w-full flex items-center justify-center gap-2 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
-              <Copy className="w-4 h-4" /> Copy to Clipboard
-            </button>
-            
-            <button onClick={shareToWhatsApp} disabled={isGenerating} className="w-full flex items-center justify-center gap-2 py-3 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
-              <MessageCircle className="w-4 h-4" /> Share to WhatsApp
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => copyToClipboard(generatedToken)} disabled={isGenerating || generatedToken.includes('Error')} className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                <Copy className="w-4 h-4" /> Copy
+              </button>
+              
+              <button onClick={shareToWhatsApp} disabled={isGenerating || generatedToken.includes('Error')} className="flex-1 flex items-center justify-center gap-2 py-3 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                <MessageCircle className="w-4 h-4" /> WhatsApp
+              </button>
+            </div>
+
+            {/* --- NEW: EMAIL SHARE UI --- */}
+            <div className="pt-4 mt-2 border-t border-slate-100 dark:border-white/5 space-y-3">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Send via Email</label>
+              <div className="flex gap-2">
+                <input 
+                  type="email" 
+                  placeholder="investor@example.com" 
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                />
+                <button 
+                  onClick={shareToEmail}
+                  disabled={isGenerating || generatedToken.includes('Error') || !inviteEmail || isSendingEmail} 
+                  className={`px-4 py-2.5 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center gap-2 ${
+                    emailSuccess ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)]'
+                  }`}
+                >
+                  {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : emailSuccess ? <CheckCircle2 className="w-4 h-4" /> : <Mail className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
 
-      {/* ========================================= */}
-      {/* DRAWER: MANAGE USER                         */}
-      {/* ========================================= */}
-      
       {isUserDrawerOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
@@ -363,13 +444,15 @@ export default function AdminPanelPage() {
               </div>
             </div>
 
-            {/* CONDITIONAL RENDERING */}
             {manageView === "actions" ? (
               <div className="space-y-4 animate-in slide-in-from-left-4">
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Account Actions</h4>
                 
-                {/* The Activation Box */}
-                {!newPassword ? (
+                {selectedUser.status === 'active' ? (
+                   <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
+                      <p className="text-sm text-slate-600 dark:text-slate-400">This account is active and verified.</p>
+                   </div>
+                ) : !newPassword ? (
                   <div className="p-4 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-xl">
                     <h5 className="text-sm font-bold text-orange-700 dark:text-orange-400 mb-1">Activation Required</h5>
                     <p className="text-xs text-orange-600/80 dark:text-orange-400/80 mb-3">This user has registered using a token but awaits your approval to receive login credentials.</p>
