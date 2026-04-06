@@ -8,6 +8,7 @@ import {
   ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff 
 } from "lucide-react";
 import { redeemInviteToken } from "@/actions/authActions";
+import { signIn } from "next-auth/react"; // <-- Added NextAuth import
 
 export default function LoginPage() {
   const [view, setView] = useState<"login" | "redeem" | "success">("login");
@@ -45,11 +46,22 @@ export default function LoginPage() {
         setView("success");
       }
     } else {
-      // Login flow (We will wire this up to NextAuth later)
-      setTimeout(() => {
-        setIsLoading(false);
+      // --- REAL NEXTAUTH LOGIN FLOW ---
+      const result = await signIn("credentials", {
+        redirect: false,
+        email: email,
+        password: password,
+      });
+
+      setIsLoading(false);
+
+      if (result?.error) {
+        // If they type the wrong password or are still "pending"
+        setErrorMessage(result.error);
+      } else {
+        // Success! The Gatekeeper will now let us through to the dashboard.
         window.location.href = "/dashboard";
-      }, 1500);
+      }
     }
   };
 
