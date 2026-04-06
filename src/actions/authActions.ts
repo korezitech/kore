@@ -9,7 +9,7 @@ export async function redeemInviteToken(formData: FormData) {
     const apiKey = process.env.KORE_API_SECRET_KEY;
 
     try {
-        const response = await fetch(`${apiUrl}/tokens/redeem`, {
+        const response = await fetch(`${apiUrl}?action=redeem_token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -17,16 +17,10 @@ export async function redeemInviteToken(formData: FormData) {
             },
             body: JSON.stringify({ token, name, email }),
         });
-
         const data = await response.json();
-
-        if (!response.ok) {
-            return { error: data.error || 'Failed to redeem token.' };
-        }
-
+        if (!response.ok) return { error: data.error || 'Failed to redeem token.' };
         return { success: data.message };
     } catch (error) {
-        console.error("Redeem token error:", error);
-        return { error: 'A network error occurred. Please try again.' };
+        return { error: 'A network error occurred.' };
     }
 }

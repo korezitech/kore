@@ -14,7 +14,7 @@ const handler = NextAuth({
 
         try {
           // Ask our Hostinger backend if the password is correct
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}?action=login`, {
             method: 'POST',
             body: JSON.stringify({
               email: credentials.email,
