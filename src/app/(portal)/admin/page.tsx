@@ -4,16 +4,23 @@ import { useState, useEffect } from "react";
 import { 
   Users, Activity, ShieldCheck, ArrowUpRight, Search, 
   Filter, Download, AlertCircle, Database, 
-  Server, Key, Copy, MessageCircle, UserCheck, Trash2, X, Loader2, CheckCircle2, Mail 
+  Server, Key, Copy, MessageCircle, UserCheck, UserX, Trash2, X, Loader2, CheckCircle2, Mail 
 } from "lucide-react";
-import { getPendingUsers, generateNewToken, activatePendingUser, sendTokenEmail } from "@/actions/adminActions";
+import { 
+  getPendingUsers, 
+  generateNewToken, 
+  activatePendingUser, 
+  sendTokenEmail, 
+  deactivateUser, 
+  deleteUser 
+} from "@/actions/adminActions";
 
 export default function AdminPanelPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "system" | "audit">("users");
   
-  // --- NEW: Status Filter State ---
-  const [statusFilter, setStatusFilter] = useState<"All" | "active" | "pending">("All");
+  // Status Filter State
+  const [statusFilter, setStatusFilter] = useState<"All" | "active" | "pending" | "inactive">("All");
 
   // Real Database State
   const [realUsers, setRealUsers] = useState<any[]>([]);
@@ -32,8 +39,10 @@ export default function AdminPanelPage() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [manageView, setManageView] = useState<"actions" | "edit">("actions");
   
-  // Activation State
+  // Action States
   const [isActivating, setIsActivating] = useState(false);
+  const [isDeactivating, setIsDeactivating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [newPassword, setNewPassword] = useState("");
 
   // Load real users on page load
@@ -56,13 +65,14 @@ export default function AdminPanelPage() {
     { id: 4, label: "System Alerts", value: "0", change: "Secure", isPositive: true, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
   ];
 
-  // --- NEW: Filter Logic (Search + Status) ---
+  // Filter Logic (Search + Status)
   const filteredUsers = realUsers.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) || user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "All" || user.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
+  // Export Handler
   const handleExport = () => {
     if (filteredUsers.length === 0) return alert("No users to export.");
     const headers = ["ID,Name,Email,Status,Date Joined"];
@@ -77,10 +87,11 @@ export default function AdminPanelPage() {
     document.body.removeChild(link);
   };
 
+  // Token Handlers
   const handleGenerateToken = async () => {
     setIsGenerating(true);
     setGeneratedToken("Generating...");
-    setInviteEmail(""); // Reset email when generating new token
+    setInviteEmail(""); 
     try {
       const token = await generateNewToken();
       if (token) {
@@ -121,12 +132,13 @@ export default function AdminPanelPage() {
     
     if (result.success) {
       setEmailSuccess(true);
-      setTimeout(() => setEmailSuccess(false), 3000); // Turn green for 3 seconds!
+      setTimeout(() => setEmailSuccess(false), 3000); 
     } else {
       alert("Failed to send email: " + result.error);
     }
   };
 
+  // User Management Handlers
   const openManageUser = (user: any) => {
     setSelectedUser(user);
     setManageView("actions");
@@ -142,7 +154,6 @@ export default function AdminPanelPage() {
     
     if (result.status === "Success") {
       setNewPassword(result.temporaryPassword);
-      // Update UI to show user as active without refreshing page
       setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'active' } : u));
     } else {
       alert("Error activating user: " + result.error);
@@ -150,9 +161,40 @@ export default function AdminPanelPage() {
     setIsActivating(false);
   };
 
+  const handleDeactivateUser = async () => {
+    if (!selectedUser || !confirm(`Are you sure you want to suspend ${selectedUser.name}? They will be locked out immediately.`)) return;
+    setIsDeactivating(true);
+    
+    const result = await deactivateUser(selectedUser.id);
+    
+    if (result.success) {
+      setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'inactive' } : u));
+      setSelectedUser({...selectedUser, status: 'inactive'});
+    } else {
+      alert("Error suspending user: " + result.error);
+    }
+    setIsDeactivating(false);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!selectedUser || !confirm(`DANGER: Are you sure you want to permanently delete ${selectedUser.name}? This cannot be undone.`)) return;
+    setIsDeleting(true);
+    
+    const result = await deleteUser(selectedUser.id);
+    
+    if (result.success) {
+      setRealUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+      setIsUserDrawerOpen(false); 
+    } else {
+      alert("Error deleting user: " + result.error);
+    }
+    setIsDeleting(false);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 relative min-h-[80vh]">
       
+      {/* HEADER & ACTIONS */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -174,6 +216,7 @@ export default function AdminPanelPage() {
         </div>
       </div>
 
+      {/* TOP ROW: Telemetry Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {platformStats.map((stat) => (
           <div key={stat.id} className="glass-panel p-6 relative overflow-hidden group">
@@ -194,6 +237,7 @@ export default function AdminPanelPage() {
         ))}
       </div>
 
+      {/* MAIN CONTENT AREA */}
       <div className="glass-panel overflow-hidden flex flex-col">
         <div className="flex overflow-x-auto hide-scrollbar bg-slate-50/50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 p-2 gap-2">
           {[
@@ -230,7 +274,7 @@ export default function AdminPanelPage() {
                 />
               </div>
               
-              {/* --- NEW: STATUS FILTER DROPDOWN --- */}
+              {/* STATUS FILTER DROPDOWN */}
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                   <Filter className="w-4 h-4" />
@@ -243,6 +287,7 @@ export default function AdminPanelPage() {
                   <option value="All">All Statuses</option>
                   <option value="active">Active Users</option>
                   <option value="pending">Pending Activations</option>
+                  <option value="inactive">Suspended Users</option>
                 </select>
               </div>
             </div>
@@ -286,10 +331,14 @@ export default function AdminPanelPage() {
                           </div>
                         </td>
                         <td className="p-4">
-                          {/* --- NEW: DYNAMIC STATUS BADGE --- */}
+                          {/* DYNAMIC STATUS BADGE */}
                           {user.status === 'active' ? (
                             <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20">
                               Active
+                            </span>
+                          ) : user.status === 'inactive' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/20">
+                              Suspended
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-500/20">
@@ -327,6 +376,7 @@ export default function AdminPanelPage() {
         )}
       </div>
 
+      {/* DRAWER: GENERATE TOKEN */}
       {isTokenDrawerOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
@@ -382,7 +432,7 @@ export default function AdminPanelPage() {
               </button>
             </div>
 
-            {/* --- NEW: EMAIL SHARE UI --- */}
+            {/* EMAIL SHARE UI */}
             <div className="pt-4 mt-2 border-t border-slate-100 dark:border-white/5 space-y-3">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Send via Email</label>
               <div className="flex gap-2">
@@ -409,6 +459,7 @@ export default function AdminPanelPage() {
         </div>
       </div>
 
+      {/* DRAWER: MANAGE USER */}
       {isUserDrawerOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
@@ -448,9 +499,29 @@ export default function AdminPanelPage() {
               <div className="space-y-4 animate-in slide-in-from-left-4">
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Account Actions</h4>
                 
-                {selectedUser.status === 'active' ? (
-                   <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
-                      <p className="text-sm text-slate-600 dark:text-slate-400">This account is active and verified.</p>
+                {selectedUser.status === 'inactive' ? (
+                   <div className="p-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl">
+                      <h5 className="text-sm font-bold text-rose-700 dark:text-rose-400 mb-1">Account Suspended</h5>
+                      <p className="text-xs text-rose-600/80 dark:text-rose-400/80 mb-3">This user is currently locked out of the platform.</p>
+                      <button 
+                        className="w-full py-2 bg-slate-200 dark:bg-white/10 hover:bg-slate-300 text-slate-700 dark:text-white rounded-lg text-sm font-bold transition-colors"
+                      >
+                        Restore Access
+                      </button>
+                   </div>
+                ) : selectedUser.status === 'active' ? (
+                   <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl space-y-3">
+                      <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">This account is active and verified.</p>
+                      
+                      {/* SUSPEND BUTTON */}
+                      <button 
+                        onClick={handleDeactivateUser}
+                        disabled={isDeactivating}
+                        className="w-full py-2.5 border border-amber-200 dark:border-amber-500/30 text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {isDeactivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserX className="w-4 h-4" />}
+                        {isDeactivating ? "Suspending..." : "Suspend Account"}
+                      </button>
                    </div>
                 ) : !newPassword ? (
                   <div className="p-4 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-xl">
@@ -475,16 +546,22 @@ export default function AdminPanelPage() {
                     </div>
                     <button 
                       onClick={() => copyToClipboard(newPassword)}
-                      className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-400 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
                     >
                       <Copy className="w-4 h-4" /> Copy Password
                     </button>
                   </div>
                 )}
 
+                {/* DELETE BUTTON */}
                 <div className="pt-6 mt-6 border-t border-slate-100 dark:border-white/5">
-                  <button className="w-full py-3 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2">
-                    <Trash2 className="w-4 h-4" /> Reject & Delete User
+                  <button 
+                    onClick={handleDeleteUser}
+                    disabled={isDeleting}
+                    className="w-full py-3 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} 
+                    {isDeleting ? "Deleting..." : "Reject & Delete User"}
                   </button>
                 </div>
               </div>

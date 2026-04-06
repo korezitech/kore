@@ -69,3 +69,45 @@ export async function sendTokenEmail(email: string, token: string) {
         return { error: "Network error" };
     }
 }
+
+// --- NEW: Deactivate User Action ---
+export async function deactivateUser(userId: string) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiKey = process.env.KORE_API_SECRET_KEY;
+    try {
+        const response = await fetch(`${apiUrl}?action=deactivate_user`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || ''
+            },
+            body: JSON.stringify({ userId })
+        });
+        const data = await response.json();
+        if (data.error) return { error: data.error };
+        return { success: true };
+    } catch (error) {
+        return { error: "Network error" };
+    }
+}
+
+// --- NEW: Delete User Action ---
+export async function deleteUser(userId: string) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiKey = process.env.KORE_API_SECRET_KEY;
+    try {
+        const response = await fetch(`${apiUrl}?action=delete_user`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || ''
+            },
+            body: JSON.stringify({ userId })
+        });
+        const data = await response.json();
+        if (data.error) return { error: data.error };
+        return { success: true };
+    } catch (error) {
+        return { error: "Network error" };
+    }
+}
