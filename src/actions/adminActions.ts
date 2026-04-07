@@ -54,19 +54,24 @@ export async function activatePendingUser(userId: string) {
 // --- NEW: Email Sender Action ---
 export async function sendTokenEmail(email: string, token: string) {
     try {
-        const response = await fetch(`${apiUrl}?action=send_token_email`, {
+        // Point this to your new Hostinger PHP script
+        const response = await fetch('https://api.korefinanceapp.com/api/send_token.php', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-api-key': apiKey || ''
             },
-            body: JSON.stringify({ email, token })
+            body: JSON.stringify({ email, token }),
         });
+
         const data = await response.json();
-        if (data.error) return { error: data.error };
-        return { success: true };
+
+        if (data.status === 'success') {
+            return { success: true };
+        } else {
+            return { success: false, error: data.message || 'Failed to send email.' };
+        }
     } catch (error) {
-        return { error: "Network error" };
+        return { success: false, error: 'A network error occurred while sending the email.' };
     }
 }
 
