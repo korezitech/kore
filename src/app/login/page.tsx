@@ -8,7 +8,7 @@ import {
   ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff 
 } from "lucide-react";
 import { redeemInviteToken } from "@/actions/authActions";
-import { signIn } from "next-auth/react"; // <-- Added NextAuth import
+import { signIn } from "next-auth/react";
 
 export default function LoginPage() {
   const [view, setView] = useState<"login" | "redeem" | "success">("login");
@@ -34,7 +34,7 @@ export default function LoginPage() {
       formData.append("name", fullName);
       formData.append("email", email);
 
-      // Call your Node.js API via the Next.js Server Action
+      // Call your API via the Next.js Server Action
       const result = await redeemInviteToken(formData);
 
       setIsLoading(false);
