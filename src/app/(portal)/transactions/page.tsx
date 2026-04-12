@@ -320,7 +320,7 @@ export default function TransactionsPage() {
       </div>
 
       {/* COMMAND BAR */}
-      <div className="glass-panel p-2 md:p-3 flex flex-col md:flex-row gap-3 relative z-50 !overflow-visible">
+      <div className="bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-md border border-slate-200 dark:border-white/10 rounded-2xl p-2 md:p-3 flex flex-col md:flex-row gap-3 relative z-20">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input 
@@ -345,7 +345,7 @@ export default function TransactionsPage() {
 
           {/* FILTER DROPDOWN */}
           {filterOpen && (
-             <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[80] overflow-hidden animate-in fade-in slide-in-from-top-2">
+             <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
                 <button onClick={() => { setTxFilter("All"); setFilterOpen(false); }} className={`w-full text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors ${txFilter === "All" ? "text-[var(--color-brand-deep)]" : "text-slate-700 dark:text-slate-300"}`}>All Transactions</button>
                 <button onClick={() => { setTxFilter("Income"); setFilterOpen(false); }} className={`w-full text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5 ${txFilter === "Income" ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-300"}`}>Money In (Income)</button>
                 <button onClick={() => { setTxFilter("Expense"); setFilterOpen(false); }} className={`w-full text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5 ${txFilter === "Expense" ? "text-rose-600 dark:text-rose-400" : "text-slate-700 dark:text-slate-300"}`}>Money Out (Expense)</button>

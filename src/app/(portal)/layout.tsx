@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState, useRef } from "react";
+import { signOut, useSession } from "next-auth/react";
 import {
   LayoutDashboard, ArrowRightLeft, TrendingUp, HandCoins, Target, Bot,
   Sun, Moon, LogOut, ChevronLeft, ChevronRight, Bell, Settings, User, Landmark, Trash2
@@ -29,6 +30,8 @@ const notifications = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const { data: session } = useSession();
+
   const [mounted, setMounted] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false); 
   
@@ -59,21 +62,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return "Good evening";
   };
 
-  // Mock User First Name (Will be dynamic when DB is connected)
-  const userFirstName = "Korede";
+  // --- DYNAMIC USER DATA LOGIC ---
+  const userName = session?.user?.name || "User";
+  const userEmail = session?.user?.email || "";
+  const userFirstName = userName.split(" ")[0]; // Grabs just the first name
+  
+  // Automatically generate 1 or 2 letter initials
+  const getInitials = (name: string) => {
+    const names = name.split(' ');
+    if (names.length >= 2) return `${names[0][0]}${names[1][0]}`.toUpperCase();
+    return name ? name.substring(0, 2).toUpperCase() : 'US';
+  };
+  const userInitials = getInitials(userName);
+
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: '/login' });
+  };
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-slate-50 dark:bg-[#0B0F19] transition-colors duration-300">
       
-      {/* PRO DESKTOP SIDEBAR */}
+      {/* PRO DESKTOP SIDEBAR - z-index increased to 110 so the toggle button overlays the header */}
       <aside 
-        className={`hidden md:flex flex-col border-r border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-2xl transition-all duration-300 relative z-20 ${
+        className={`hidden md:flex flex-col border-r border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-2xl transition-all duration-300 relative z-[110] ${
           isCollapsed ? "w-20" : "w-64"
         }`}
       >
         <button 
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="absolute -right-3.5 top-8 bg-white dark:bg-slate-900 rounded-full p-1.5 border border-slate-200 dark:border-white/10 shadow-sm hover:scale-110 transition-transform z-30 text-slate-500 dark:text-slate-400"
+          className="absolute -right-3.5 top-8 bg-white dark:bg-slate-900 rounded-full p-1.5 border border-slate-200 dark:border-white/10 shadow-sm hover:scale-110 transition-transform text-slate-500 dark:text-slate-400"
         >
           {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
@@ -116,7 +133,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="p-4 border-t border-slate-200/60 dark:border-white/5">
-          <button title="Logout" className={`flex items-center gap-3 py-2.5 w-full rounded-xl text-slate-600 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:text-slate-400 transition-all ${isCollapsed ? "justify-center px-0" : "px-3"}`}>
+          <button onClick={handleLogout} title="Logout" className={`flex items-center gap-3 py-2.5 w-full rounded-xl text-slate-600 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:text-slate-400 transition-all ${isCollapsed ? "justify-center px-0" : "px-3"}`}>
             <LogOut className="w-5 h-5 flex-shrink-0" />
             {!isCollapsed && <span>Logout</span>}
           </button>
@@ -126,7 +143,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* MAIN CONTENT CANVAS */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
-        <header className="h-20 flex items-center justify-between px-6 md:px-10 border-b border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-xl absolute top-0 left-0 right-0 z-10">
+        <header className="h-20 flex items-center justify-between px-6 md:px-10 border-b border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-xl absolute top-0 left-0 right-0 z-[100]">
           
           {/* Dynamic Greeting */}
           <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
@@ -188,7 +205,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-[var(--color-brand-deep)] to-[var(--color-brand-light)] p-[2px] shadow-sm group-hover:scale-105 transition-transform">
                   <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center">
-                    <span className="font-bold text-xs text-[var(--color-brand-deep)]">KA</span>
+                    <span className="font-bold text-xs text-[var(--color-brand-deep)]">{userInitials}</span>
                   </div>
                 </div>
               </button>
@@ -197,24 +214,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {showProfileMenu && (
                 <div className="absolute right-0 mt-3 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 p-2">
                   <div className="px-3 py-3 border-b border-slate-100 dark:border-white/5 mb-2">
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">Korede Ajayi</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">korede@korefinance.com</p>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">{userName}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{userEmail}</p>
                   </div>
                   
-                  <Link href="/profile" className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
+                  <Link href="/profile" onClick={() => setShowProfileMenu(false)} className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
                     <User className="w-4 h-4" /> Profile Settings
                   </Link>
-                  <Link href="/recycle-bin" className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
+                  <Link href="/recycle-bin" onClick={() => setShowProfileMenu(false)} className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
                     <Trash2 className="w-4 h-4" /> Recycle Bin
                   </Link>
-                  <Link href="/admin" className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
+                  <Link href="/admin" onClick={() => setShowProfileMenu(false)} className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors">
                     <Settings className="w-4 h-4" /> Admin Panel
                   </Link>
                   
                   {/* Theme Toggle inside menu for mobile users */}
                   <div className="sm:hidden">
                     <button 
-                      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                      onClick={() => {
+                        setTheme(theme === "dark" ? "light" : "dark");
+                        setShowProfileMenu(false);
+                      }}
                       className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors w-full text-left"
                     >
                       {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />} Toggle Theme
@@ -223,7 +243,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   
                   <div className="h-px bg-slate-100 dark:bg-white/5 my-2"></div>
                   
-                  <button className="flex items-center gap-2.5 px-3 py-2 text-sm font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors w-full text-left">
+                  <button onClick={handleLogout} className="flex items-center gap-2.5 px-3 py-2 text-sm font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors w-full text-left">
                     <LogOut className="w-4 h-4" /> Sign out
                   </button>
                 </div>
