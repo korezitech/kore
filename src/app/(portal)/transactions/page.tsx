@@ -39,7 +39,7 @@ export default function TransactionsPage() {
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [date, setDate] = useState("");
   const [category, setCategory] = useState("Expense");
-  const [txType, setTxType] = useState<"debit" | "credit">("debit");
+  const [txType, setTxType] = useState<"expense" | "income">("expense");
 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
@@ -288,7 +288,7 @@ export default function TransactionsPage() {
               const symbol = getCurrencySymbol(tx.currency);
               
               // Smart check for Credit (handles missing DB type if category is Income)
-              const isCredit = tx.type === 'credit' || String(tx.category).toLowerCase().includes('income');
+              const isCredit = tx.type === 'income';
 
               return (
                 <div 
@@ -446,18 +446,18 @@ export default function TransactionsPage() {
               
               <div className="flex p-1 bg-slate-100 dark:bg-black/20 rounded-xl border border-slate-200 dark:border-white/5 mb-2">
                 <button 
-                  onClick={() => setTxType("debit")}
+                  onClick={() => setTxType("expense")}
                   disabled={isSubmitting}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-bold rounded-lg transition-all ${txType === "debit" ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-bold rounded-lg transition-all ${txType === "expense" ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
-                  Money Out (Debit)
+                  Money Out (Expense)
                 </button>
                 <button 
-                  onClick={() => setTxType("credit")}
+                  onClick={() => setTxType("income")}
                   disabled={isSubmitting}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-bold rounded-lg transition-all ${txType === "credit" ? "bg-emerald-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-bold rounded-lg transition-all ${txType === "income" ? "bg-emerald-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                 >
-                  Money In (Credit)
+                  Money In (Income)
                 </button>
               </div>
 

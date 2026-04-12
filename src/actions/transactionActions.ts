@@ -26,6 +26,7 @@ export async function createTransaction(transactionData: any) {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey || ''
             },
+            // This is the important part: we need to make sure type is in this JSON!
             body: JSON.stringify(transactionData)
         });
         const data = await response.json();
