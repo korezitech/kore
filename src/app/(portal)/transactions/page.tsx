@@ -320,7 +320,7 @@ export default function TransactionsPage() {
       </div>
 
       {/* COMMAND BAR */}
-      <div className="glass-panel p-2 md:p-3 flex flex-col md:flex-row gap-3">
+      <div className="glass-panel p-2 md:p-3 flex flex-col md:flex-row gap-3 relative z-50 !overflow-visible">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input 
