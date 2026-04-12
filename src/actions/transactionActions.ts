@@ -37,7 +37,7 @@ export async function createTransaction(transactionData: any) {
     }
 }
 
-export async function deleteTransaction(transactionId: string, userId: string) {
+export async function deleteTransaction(transactionId: string, userId: string, reverseBalance: boolean = true) {
     try {
         const response = await fetch(`${apiUrl}?action=delete_transaction`, {
             method: 'POST',
@@ -45,7 +45,24 @@ export async function deleteTransaction(transactionId: string, userId: string) {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey || ''
             },
-            body: JSON.stringify({ transactionId, userId })
+            body: JSON.stringify({ transactionId, userId, reverseBalance }) // Added flag
+        });
+        const data = await response.json();
+        return { success: !data.error, error: data.error };
+    } catch (error) {
+        return { success: false, error: "Network error" };
+    }
+}
+
+export async function bulkDeleteTransactions(transactionIds: string[], userId: string, reverseBalance: boolean = true) {
+    try {
+        const response = await fetch(`${apiUrl}?action=bulk_delete_transactions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || ''
+            },
+            body: JSON.stringify({ transactionIds, userId, reverseBalance })
         });
         const data = await response.json();
         return { success: !data.error, error: data.error };
