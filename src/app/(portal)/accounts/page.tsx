@@ -1,58 +1,163 @@
 "use client";
 
-import { useState } from "react";
-import { Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, MoreHorizontal, Trash2, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle } from "lucide-react";
+import { getUserAccounts, createAccount, updateAccount, deleteAccount } from "@/actions/accountActions";
 
-// Updated dummy data with currency codes for easier editing
-const dummyAccounts = [
-  { id: 1, name: "Naira Checking", type: "fiat", currencyCode: "NGN", symbol: "₦", balance: "2150000", accountTail: "4092" },
-  { id: 2, name: "GBP Vault", type: "fiat", currencyCode: "GBP", symbol: "£", balance: "15400", accountTail: "8810" },
-  { id: 3, name: "USD Savings", type: "fiat", currencyCode: "USD", symbol: "$", balance: "4200", accountTail: "1102" },
-  { id: 4, name: "Korezi Store", type: "business", currencyCode: "NGN", symbol: "₦", balance: "12450000", accountTail: "Biz" },
-  { id: 5, name: "AMEX Platinum", type: "credit", currencyCode: "USD", symbol: "$", balance: "-450", accountTail: "1005" },
-  { id: 6, name: "NGX Portfolio", type: "investment", currencyCode: "NGN", symbol: "₦", balance: "8340000", accountTail: "Stock" },
-];
+// Custom type for our Confirm Modal
+type ConfirmConfig = {
+  title: string;
+  message: string;
+  actionText: string;
+  actionColor: string;
+  iconColor: string;
+  onConfirm: () => Promise<void>;
+};
 
 export default function AccountsPage() {
+  const { data: session, status } = useSession();
+  const userId = (session?.user as any)?.id;
+
+  // Real Database State
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [isFetching, setIsFetching] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Privacy mode state
   const [showAmounts, setShowAmounts] = useState(true);
+
+  // Custom Confirm Modal State
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Drawer visibility and mode state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"add" | "edit">("add");
-  const [activeAccountId, setActiveAccountId] = useState<number | null>(null);
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   
   // Form input states
   const [accountType, setAccountType] = useState("fiat");
   const [currency, setCurrency] = useState("NGN");
   const [accountName, setAccountName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
   const [balance, setBalance] = useState("");
 
-  // Helper to format numbers with commas for display on the cards
-  const formatBalance = (val: string) => Number(val).toLocaleString();
+  useEffect(() => {
+    if (userId) {
+      loadAccounts();
+    } else if (status === "unauthenticated") {
+      setIsFetching(false);
+    }
+  }, [userId, status]);
 
-  // Handlers for opening the drawer
+  const loadAccounts = async () => {
+    setIsFetching(true);
+    const data = await getUserAccounts(userId);
+    setAccounts(data || []);
+    setIsFetching(false);
+  };
+
+  // Helpers
+  const formatBalance = (val: string | number) => Number(val).toLocaleString();
+  const getCurrencySymbol = (code: string) => {
+    if (code === "NGN") return "₦";
+    if (code === "GBP") return "£";
+    if (code === "USD") return "$";
+    return code; 
+  };
+
   const openAddDrawer = () => {
     setDrawerMode("add");
     setActiveAccountId(null);
     setAccountType("fiat");
     setCurrency("NGN");
     setAccountName("");
+    setAccountNumber("");
     setBalance("");
     setIsDrawerOpen(true);
   };
 
-  const openEditDrawer = (acc: typeof dummyAccounts[0]) => {
+  const openEditDrawer = (acc: any) => {
     setDrawerMode("edit");
     setActiveAccountId(acc.id);
     setAccountType(acc.type);
-    setCurrency(acc.currencyCode);
+    setCurrency(acc.currency); 
     setAccountName(acc.name);
+    setAccountNumber(acc.accountNumber || "");
     setBalance(acc.balance);
     setIsDrawerOpen(true);
   };
 
-  const getAccountsByType = (type: string) => dummyAccounts.filter(acc => acc.type === type);
+  const handleSaveAccount = async () => {
+    if (!accountName || !balance || !accountNumber) return alert("Please fill in all fields (Name, Number, and Balance)");
+    
+    setIsSubmitting(true);
+    
+    if (drawerMode === "add") {
+      const result = await createAccount({
+        userId,
+        name: accountName,
+        type: accountType,
+        currency,
+        balance,
+        accountNumber 
+      });
+
+      if (result.success) {
+        await loadAccounts(); 
+        setIsDrawerOpen(false);
+      } else {
+        alert(result.error);
+      }
+    } else {
+      const result = await updateAccount({
+        accountId: activeAccountId,
+        userId,
+        name: accountName,
+        type: accountType,
+        currency,
+        balance,
+        accountNumber
+      });
+
+      if (result.success) {
+        await loadAccounts(); 
+        setIsDrawerOpen(false);
+      } else {
+        alert(result.error);
+      }
+    }
+    
+    setIsSubmitting(false);
+  };
+
+  // Custom Confirm Handler for Deleting Accounts
+  const handleDeleteAccount = () => {
+    if (!activeAccountId) return;
+    
+    setConfirmConfig({
+      title: "Delete Account",
+      message: `Are you sure you want to permanently delete this account? This will remove all associated financial records and cannot be undone.`,
+      actionText: "Delete Account",
+      actionColor: "bg-rose-600 hover:bg-rose-700",
+      iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
+      onConfirm: async () => {
+        const result = await deleteAccount(activeAccountId, userId);
+        if (result.success) {
+          await loadAccounts(); 
+          setIsDrawerOpen(false);
+        } else {
+          alert("Error deleting account: " + result.error);
+        }
+        setIsConfirmModalOpen(false);
+      }
+    });
+    setIsConfirmModalOpen(true);
+  };
+
+  const getAccountsByType = (type: string) => accounts.filter(acc => acc.type === type);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
@@ -80,135 +185,159 @@ export default function AccountsPage() {
         </button>
       </div>
 
-      {/* ACCOUNTS DASHBOARD UI */}
-      <div className="space-y-10">
-        
-        {/* FIAT & CASH SECTION */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Wallet className="w-5 h-5 text-blue-500" />
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Fiat & Cash</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {getAccountsByType("fiat").map(acc => (
-              <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
-                <button 
-                  onClick={() => openEditDrawer(acc)}
-                  className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer z-10"
-                >
-                  <MoreHorizontal className="w-5 h-5" />
-                </button>
-                <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center mb-4 font-bold text-lg">
-                  {acc.symbol}
-                </div>
-                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
-                <p className="text-xs text-slate-400 mb-3">•••• {acc.accountTail}</p>
-                <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
-                </h4>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* BUSINESS & ENTERPRISE SECTION */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Building className="w-5 h-5 text-orange-500" />
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Business Vaults</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {getAccountsByType("business").map(acc => (
-              <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
-                <button 
-                  onClick={() => openEditDrawer(acc)}
-                  className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer z-10"
-                >
-                  <MoreHorizontal className="w-5 h-5" />
-                </button>
-                <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center mb-4">
-                  <Building className="w-5 h-5" />
-                </div>
-                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
-                <p className="text-xs text-slate-400 mb-3">{acc.accountTail}</p>
-                <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
-                </h4>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* CREDIT & INVESTMENTS ROW */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-          <section>
-            <div className="flex items-center gap-2 mb-4">
-              <CreditCard className="w-5 h-5 text-rose-500" />
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Credit Lines</h3>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              {getAccountsByType("credit").map(acc => (
-                <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors flex justify-between items-center relative">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center">
-                      <CreditCard className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{acc.name}</p>
-                      <p className="text-xs text-slate-400">•••• {acc.accountTail}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
-                      {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
-                    </h4>
-                    <button 
-                      onClick={() => openEditDrawer(acc)}
-                      className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
-                    >
-                      <MoreHorizontal className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="w-5 h-5 text-emerald-500" />
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Investments</h3>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              {getAccountsByType("investment").map(acc => (
-                <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors flex justify-between items-center relative">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                      <TrendingUp className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{acc.name}</p>
-                      <p className="text-xs text-slate-400">{acc.accountTail}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                      {showAmounts ? `${acc.symbol}${formatBalance(acc.balance)}` : "••••••"}
-                    </h4>
-                    <button 
-                      onClick={() => openEditDrawer(acc)}
-                      className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
-                    >
-                      <MoreHorizontal className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+      {/* LOADING STATE */}
+      {isFetching ? (
+        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <Loader2 className="w-8 h-8 animate-spin mb-4 text-[var(--color-brand-deep)]" />
+          <p className="text-sm font-semibold">Decrypting vault data...</p>
         </div>
+      ) : accounts.length === 0 ? (
+        <div className="glass-panel flex flex-col items-center justify-center py-20 text-slate-500 text-center">
+          <Landmark className="w-12 h-12 mb-4 text-slate-300 dark:text-slate-600" />
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">No Accounts Found</h3>
+          <p className="text-sm max-w-sm mb-6">You haven't connected or created any financial accounts yet. Add your first account to get started.</p>
+          <button onClick={openAddDrawer} className="text-[var(--color-brand-deep)] font-bold hover:underline">
+            + Create your first account
+          </button>
+        </div>
+      ) : (
+        /* ACCOUNTS DASHBOARD UI */
+        <div className="space-y-10">
+          
+          {/* FIAT & CASH SECTION */}
+          {getAccountsByType("fiat").length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <Wallet className="w-5 h-5 text-blue-500" />
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Fiat & Cash</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {getAccountsByType("fiat").map(acc => (
+                  <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
+                    <button 
+                      onClick={() => openEditDrawer(acc)}
+                      className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer z-10"
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                    </button>
+                    <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center mb-4 font-bold text-lg">
+                      {getCurrencySymbol(acc.currency)}
+                    </div>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
+                    <p className="text-xs text-slate-400 mb-3">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
+                    <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
+                      {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                    </h4>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
-      </div>
+          {/* BUSINESS & ENTERPRISE SECTION */}
+          {getAccountsByType("business").length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <Building className="w-5 h-5 text-orange-500" />
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Business Vaults</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {getAccountsByType("business").map(acc => (
+                  <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
+                    <button 
+                      onClick={() => openEditDrawer(acc)}
+                      className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer z-10"
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                    </button>
+                    <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center mb-4">
+                      <Building className="w-5 h-5" />
+                    </div>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
+                    <p className="text-xs text-slate-400 mb-3">{acc.accountNumber}</p>
+                    <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
+                      {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                    </h4>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* CREDIT & INVESTMENTS ROW */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            {getAccountsByType("credit").length > 0 && (
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <CreditCard className="w-5 h-5 text-rose-500" />
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Credit Lines</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {getAccountsByType("credit").map(acc => (
+                    <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors flex justify-between items-center relative">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center">
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{acc.name}</p>
+                          <p className="text-xs text-slate-400">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
+                          {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                        </h4>
+                        <button 
+                          onClick={() => openEditDrawer(acc)}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
+                        >
+                          <MoreHorizontal className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {getAccountsByType("investment").length > 0 && (
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="w-5 h-5 text-emerald-500" />
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Investments</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {getAccountsByType("investment").map(acc => (
+                    <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors flex justify-between items-center relative">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                          <TrendingUp className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{acc.name}</p>
+                          <p className="text-xs text-slate-400">{acc.accountNumber}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                          {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                        </h4>
+                        <button 
+                          onClick={() => openEditDrawer(acc)}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
+                        >
+                          <MoreHorizontal className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ========================================= */}
       {/* SLIDE-OUT DRAWER OVERLAY & PANEL */}
@@ -217,7 +346,7 @@ export default function AccountsPage() {
       {isDrawerOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
-          onClick={() => setIsDrawerOpen(false)}
+          onClick={() => !isSubmitting && setIsDrawerOpen(false)}
         />
       )}
 
@@ -226,20 +355,18 @@ export default function AccountsPage() {
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        {/* Drawer Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">
             {drawerMode === "add" ? "Add New Account" : "Edit Account"}
           </h3>
           <button 
-            onClick={() => setIsDrawerOpen(false)}
+            onClick={() => !isSubmitting && setIsDrawerOpen(false)}
             className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Drawer Form Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="space-y-3">
             <label className="text-sm font-semibold text-slate-900 dark:text-white">Account Type</label>
@@ -253,7 +380,8 @@ export default function AccountsPage() {
                 <button
                   key={type.id}
                   onClick={() => setAccountType(type.id)}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border transition-all ${
+                  disabled={isSubmitting}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border transition-all disabled:opacity-50 ${
                     accountType === type.id 
                       ? "border-[var(--color-brand-deep)] bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)]" 
                       : "border-slate-200 dark:border-white/10 text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5"
@@ -273,8 +401,22 @@ export default function AccountsPage() {
                 type="text" 
                 value={accountName}
                 onChange={(e) => setAccountName(e.target.value)}
+                disabled={isSubmitting}
                 placeholder="e.g. Zenith Checking, AMEX" 
-                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all"
+                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all disabled:opacity-50"
+              />
+            </div>
+
+            {/* NEW: Account Number Input */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Account Number / ID</label>
+              <input 
+                type="text" 
+                value={accountNumber}
+                onChange={(e) => setAccountNumber(e.target.value)}
+                disabled={isSubmitting}
+                placeholder="e.g. 1234567890" 
+                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all disabled:opacity-50"
               />
             </div>
 
@@ -286,7 +428,8 @@ export default function AccountsPage() {
                     <button
                       key={cur}
                       onClick={() => setCurrency(cur)}
-                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                      disabled={isSubmitting}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all disabled:opacity-50 ${
                         currency === cur 
                           ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" 
                           : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
@@ -304,38 +447,89 @@ export default function AccountsPage() {
                   type="number" 
                   value={balance}
                   onChange={(e) => setBalance(e.target.value)}
+                  disabled={isSubmitting}
                   placeholder="0.00" 
-                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all font-medium"
+                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all font-medium disabled:opacity-50"
                 />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Drawer Footer / Actions */}
         <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 flex gap-3 items-center">
-          {/* Delete button only shows in Edit mode */}
           {drawerMode === "edit" && (
-            <button className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors shrink-0">
-              <Trash2 className="w-5 h-5" />
+            <button 
+              onClick={handleDeleteAccount}
+              disabled={isSubmitting}
+              className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors shrink-0 disabled:opacity-50"
+            >
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
             </button>
           )}
           
           <button 
             onClick={() => setIsDrawerOpen(false)}
-            className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button 
-            onClick={() => setIsDrawerOpen(false)}
-            className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20"
+            onClick={handleSaveAccount}
+            disabled={isSubmitting}
+            className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70"
           >
+            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
             {drawerMode === "add" ? "Save Account" : "Update"}
           </button>
         </div>
 
       </div>
+
+      {/* --- CUSTOM CONFIRMATION MODAL --- */}
+      {isConfirmModalOpen && confirmConfig && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => !isConfirming && setIsConfirmModalOpen(false)} 
+          />
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                {confirmConfig.title}
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+                {confirmConfig.message}
+              </p>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  disabled={isConfirming}
+                  className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsConfirming(true);
+                    await confirmConfig.onConfirm();
+                    setIsConfirming(false);
+                  }}
+                  disabled={isConfirming}
+                  className={`flex-1 py-3 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${confirmConfig.actionColor}`}
+                >
+                  {isConfirming && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isConfirming ? "Processing..." : confirmConfig.actionText}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
