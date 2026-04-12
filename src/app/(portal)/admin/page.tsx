@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { 
   Users, Activity, ShieldCheck, ArrowUpRight, Search, 
   Filter, Download, AlertCircle, Database, 
-  Server, Key, Copy, MessageCircle, UserCheck, UserX, Trash2, X, Loader2, CheckCircle2, Mail 
+  Server, Key, Copy, MessageCircle, UserCheck, UserX, Trash2, X, Loader2, CheckCircle2, Mail, Ticket, AlertTriangle 
 } from "lucide-react";
 import { 
   getPendingUsers, 
@@ -12,19 +12,34 @@ import {
   activatePendingUser, 
   sendTokenEmail, 
   deactivateUser, 
-  deleteUser 
+  deleteUser,
+  getAllTokens, 
+  deleteToken   
 } from "@/actions/adminActions";
+
+// Custom type for our new Confirm Modal
+type ConfirmConfig = {
+  title: string;
+  message: string;
+  actionText: string;
+  actionColor: string;
+  iconColor: string;
+  onConfirm: () => Promise<void>;
+};
 
 export default function AdminPanelPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"users" | "system" | "audit">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "system" | "tokens">("users");
   
-  // Status Filter State
+  // Status Filter States
   const [statusFilter, setStatusFilter] = useState<"All" | "active" | "pending" | "inactive">("All");
+  const [tokenStatusFilter, setTokenStatusFilter] = useState<"All" | "unused" | "used">("All");
 
   // Real Database State
   const [realUsers, setRealUsers] = useState<any[]>([]);
+  const [realTokens, setRealTokens] = useState<any[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const [isLoadingTokens, setIsLoadingTokens] = useState(true);
 
   // Token Drawer State
   const [isTokenDrawerOpen, setIsTokenDrawerOpen] = useState(false);
@@ -39,49 +54,85 @@ export default function AdminPanelPage() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [manageView, setManageView] = useState<"actions" | "edit">("actions");
   
+  // Custom Confirm Modal State
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+
   // Action States
   const [isActivating, setIsActivating] = useState(false);
-  const [isDeactivating, setIsDeactivating] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [newPassword, setNewPassword] = useState("");
 
-  // Load real users on page load
+  // Load real data on page load
   useEffect(() => {
-    async function loadUsers() {
+    async function loadData() {
       setIsLoadingUsers(true);
-      const users = await getPendingUsers();
-      setRealUsers(users || []);
-      setIsLoadingUsers(false);
+      setIsLoadingTokens(true);
+      
+      try {
+        const [users, tokens] = await Promise.all([
+          getPendingUsers(),
+          getAllTokens() 
+        ]);
+        
+        setRealUsers(users || []);
+        setRealTokens(tokens || []);
+      } catch (error) {
+        console.error("Failed to load data", error);
+      } finally {
+        setIsLoadingUsers(false);
+        setIsLoadingTokens(false);
+      }
     }
-    loadUsers();
+    loadData();
   }, []);
 
   const pendingCount = realUsers.filter(u => u.status === 'pending').length;
+  const activeTokensCount = realTokens.filter(t => t.status === 'unused').length;
 
   const platformStats = [
     { id: 1, label: "Total Users", value: realUsers.length.toString(), change: "Live Sync", isPositive: true, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
     { id: 2, label: "Pending Activations", value: pendingCount.toString(), change: pendingCount > 0 ? "Action Needed" : "All Clear", isPositive: pendingCount === 0, icon: UserCheck, color: "text-orange-500", bg: "bg-orange-500/10" },
     { id: 3, label: "Platform Volume (30d)", value: "₦0.00", change: "New Instance", isPositive: true, icon: Activity, color: "text-[var(--color-brand-deep)]", bg: "bg-[var(--color-brand-deep)]/10" },
-    { id: 4, label: "System Alerts", value: "0", change: "Secure", isPositive: true, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+    { id: 4, label: "Active Tokens", value: activeTokensCount.toString(), change: "Ready to use", isPositive: true, icon: Ticket, color: "text-emerald-500", bg: "bg-emerald-500/10" },
   ];
 
-  // Filter Logic (Search + Status)
+  // Filter Logic (Users)
   const filteredUsers = realUsers.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) || user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "All" || user.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
+  // Filter Logic (Tokens)
+  const filteredTokens = realTokens.filter(token => {
+    const matchesSearch = token.token.toLowerCase().includes(searchQuery.toLowerCase()) || (token.usedByEmail && token.usedByEmail.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesStatus = tokenStatusFilter === "All" || token.status === tokenStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   // Export Handler
   const handleExport = () => {
-    if (filteredUsers.length === 0) return alert("No users to export.");
-    const headers = ["ID,Name,Email,Status,Date Joined"];
-    const rows = filteredUsers.map(u => `${u.id},${u.name},${u.email},${u.status || 'pending'},${new Date(u.createdAt).toLocaleDateString()}`);
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+    if (activeTab === 'users') {
+      if (filteredUsers.length === 0) return alert("No users to export.");
+      const headers = ["ID,Name,Email,Status,Date Joined"];
+      const rows = filteredUsers.map(u => `${u.id},${u.name},${u.email},${u.status || 'pending'},${new Date(u.createdAt).toLocaleDateString()}`);
+      const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+      downloadCSV(csvContent, "kore_users_export.csv");
+    } else if (activeTab === 'tokens') {
+      if (filteredTokens.length === 0) return alert("No tokens to export.");
+      const headers = ["ID,Token,Status,Used By,Created At"];
+      const rows = filteredTokens.map(t => `${t.id},${t.token},${t.status},${t.usedByEmail || 'N/A'},${new Date(t.createdAt).toLocaleDateString()}`);
+      const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+      downloadCSV(csvContent, "kore_tokens_export.csv");
+    }
+  };
+
+  const downloadCSV = (csvContent: string, fileName: string) => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "kore_users_export.csv");
+    link.setAttribute("download", fileName);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -94,10 +145,11 @@ export default function AdminPanelPage() {
     setInviteEmail(""); 
     try {
       const token = await generateNewToken();
-      if (token) {
+      if (token && !token.includes('Error')) {
         setGeneratedToken(token);
+        setRealTokens(prev => [{ id: Date.now(), token: token, status: 'unused', createdAt: new Date().toISOString(), usedByEmail: null }, ...prev]);
       } else {
-        setGeneratedToken("Error generating token");
+        setGeneratedToken(token || "Error generating token");
       }
     } catch (error) {
       setGeneratedToken("Network Fetch Error");
@@ -138,6 +190,27 @@ export default function AdminPanelPage() {
     }
   };
 
+  // NEW: Custom Confirm Handler for Tokens
+  const handleDeleteToken = (tokenId: string, tokenString: string) => {
+    setConfirmConfig({
+      title: "Delete Access Token",
+      message: `Are you sure you want to permanently delete token ${tokenString}? This action cannot be reversed.`,
+      actionText: "Delete Token",
+      actionColor: "bg-rose-500 hover:bg-rose-600",
+      iconColor: "text-rose-500 bg-rose-50 dark:bg-rose-500/10",
+      onConfirm: async () => {
+        const result = await deleteToken(tokenId);
+        if (result.success) {
+          setRealTokens(prev => prev.filter(t => t.id !== tokenId));
+        } else {
+          alert("Error deleting token: " + result.error);
+        }
+        setIsConfirmModalOpen(false);
+      }
+    });
+    setIsConfirmModalOpen(true);
+  };
+
   // User Management Handlers
   const openManageUser = (user: any) => {
     setSelectedUser(user);
@@ -161,34 +234,50 @@ export default function AdminPanelPage() {
     setIsActivating(false);
   };
 
-  const handleDeactivateUser = async () => {
-    if (!selectedUser || !confirm(`Are you sure you want to suspend ${selectedUser.name}? They will be locked out immediately.`)) return;
-    setIsDeactivating(true);
-    
-    const result = await deactivateUser(selectedUser.id);
-    
-    if (result.success) {
-      setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'inactive' } : u));
-      setSelectedUser({...selectedUser, status: 'inactive'});
-    } else {
-      alert("Error suspending user: " + result.error);
-    }
-    setIsDeactivating(false);
+  // NEW: Custom Confirm Handler for Suspending Users
+  const handleDeactivateUser = () => {
+    if (!selectedUser) return;
+    setConfirmConfig({
+      title: "Suspend User Account",
+      message: `Are you sure you want to suspend ${selectedUser.name}? They will be locked out of the platform immediately.`,
+      actionText: "Suspend Account",
+      actionColor: "bg-amber-500 hover:bg-amber-600",
+      iconColor: "text-amber-500 bg-amber-50 dark:bg-amber-500/10",
+      onConfirm: async () => {
+        const result = await deactivateUser(selectedUser.id);
+        if (result.success) {
+          setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'inactive' } : u));
+          setSelectedUser({...selectedUser, status: 'inactive'});
+        } else {
+          alert("Error suspending user: " + result.error);
+        }
+        setIsConfirmModalOpen(false);
+      }
+    });
+    setIsConfirmModalOpen(true);
   };
 
-  const handleDeleteUser = async () => {
-    if (!selectedUser || !confirm(`DANGER: Are you sure you want to permanently delete ${selectedUser.name}? This cannot be undone.`)) return;
-    setIsDeleting(true);
-    
-    const result = await deleteUser(selectedUser.id);
-    
-    if (result.success) {
-      setRealUsers(prev => prev.filter(u => u.id !== selectedUser.id));
-      setIsUserDrawerOpen(false); 
-    } else {
-      alert("Error deleting user: " + result.error);
-    }
-    setIsDeleting(false);
+  // NEW: Custom Confirm Handler for Deleting Users
+  const handleDeleteUser = () => {
+    if (!selectedUser) return;
+    setConfirmConfig({
+      title: "Delete User Permanently",
+      message: `DANGER: Are you sure you want to permanently delete ${selectedUser.name}? This removes all their data and cannot be undone.`,
+      actionText: "Delete User",
+      actionColor: "bg-rose-600 hover:bg-rose-700",
+      iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
+      onConfirm: async () => {
+        const result = await deleteUser(selectedUser.id);
+        if (result.success) {
+          setRealUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+          setIsUserDrawerOpen(false); 
+        } else {
+          alert("Error deleting user: " + result.error);
+        }
+        setIsConfirmModalOpen(false);
+      }
+    });
+    setIsConfirmModalOpen(true);
   };
 
   return (
@@ -242,12 +331,15 @@ export default function AdminPanelPage() {
         <div className="flex overflow-x-auto hide-scrollbar bg-slate-50/50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 p-2 gap-2">
           {[
             { id: "users", label: "User Directory", icon: Users },
+            { id: "tokens", label: "Access Tokens", icon: Ticket },
             { id: "system", label: "System Health", icon: Server },
-            { id: "audit", label: "Audit Logs", icon: Database },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                setActiveTab(tab.id as any);
+                setSearchQuery(""); // Reset search on tab switch
+              }}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${
                 activeTab === tab.id 
                   ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm border border-slate-200 dark:border-white/5" 
@@ -260,6 +352,7 @@ export default function AdminPanelPage() {
           ))}
         </div>
 
+        {/* USERS TAB */}
         {activeTab === "users" && (
           <div className="p-6 animate-in fade-in">
             <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
@@ -274,7 +367,6 @@ export default function AdminPanelPage() {
                 />
               </div>
               
-              {/* STATUS FILTER DROPDOWN */}
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                   <Filter className="w-4 h-4" />
@@ -331,7 +423,6 @@ export default function AdminPanelPage() {
                           </div>
                         </td>
                         <td className="p-4">
-                          {/* DYNAMIC STATUS BADGE */}
                           {user.status === 'active' ? (
                             <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20">
                               Active
@@ -367,10 +458,114 @@ export default function AdminPanelPage() {
           </div>
         )}
 
-        {activeTab !== "users" && (
+        {/* TOKENS TAB */}
+        {activeTab === "tokens" && (
+          <div className="p-6 animate-in fade-in">
+            <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
+              <div className="relative w-full md:w-96">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Search by token or email..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all"
+                />
+              </div>
+              
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                  <Filter className="w-4 h-4" />
+                </div>
+                <select 
+                  value={tokenStatusFilter}
+                  onChange={(e) => setTokenStatusFilter(e.target.value as any)}
+                  className="pl-9 pr-8 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                >
+                  <option value="All">All Tokens</option>
+                  <option value="unused">Unused / Active</option>
+                  <option value="used">Used / Claimed</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/5">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-black/20 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-white/5">
+                    <th className="p-4 font-semibold">Access Token</th>
+                    <th className="p-4 font-semibold">Status</th>
+                    <th className="p-4 font-semibold hidden lg:table-cell">Claimed By</th>
+                    <th className="p-4 font-semibold hidden md:table-cell">Created</th>
+                    <th className="p-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {isLoadingTokens ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-slate-500">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                        Loading token registry...
+                      </td>
+                    </tr>
+                  ) : filteredTokens.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-slate-500">
+                        No tokens found matching your criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTokens.map((token) => (
+                      <tr key={token.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <Key className="w-4 h-4 text-slate-400" />
+                            <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
+                              {token.token}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          {token.status === 'unused' ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                              Unused
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-white/10">
+                              Claimed
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden lg:table-cell">
+                          {token.usedByEmail ? token.usedByEmail : <span className="text-slate-400 italic">Not claimed yet</span>}
+                        </td>
+                        <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden md:table-cell">
+                          {new Date(token.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="p-4 text-right">
+                          <button 
+                            onClick={() => handleDeleteToken(token.id, token.token)}
+                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors inline-flex"
+                            title="Delete Token"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* SYSTEM HEALTH TAB */}
+        {activeTab === "system" && (
           <div className="p-12 flex flex-col items-center justify-center text-center animate-in fade-in">
             <ShieldCheck className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">{activeTab === 'system' ? 'System Health Monitoring' : 'Security Audit Logs'}</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">System Health Monitoring</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">This module will be activated during the next backend integration phase.</p>
           </div>
         )}
@@ -513,14 +708,13 @@ export default function AdminPanelPage() {
                    <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl space-y-3">
                       <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">This account is active and verified.</p>
                       
-                      {/* SUSPEND BUTTON */}
+                      {/* CUSTOM SUSPEND BUTTON */}
                       <button 
                         onClick={handleDeactivateUser}
-                        disabled={isDeactivating}
-                        className="w-full py-2.5 border border-amber-200 dark:border-amber-500/30 text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="w-full py-2.5 border border-amber-200 dark:border-amber-500/30 text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
                       >
-                        {isDeactivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserX className="w-4 h-4" />}
-                        {isDeactivating ? "Suspending..." : "Suspend Account"}
+                        <UserX className="w-4 h-4" />
+                        Suspend Account
                       </button>
                    </div>
                 ) : !newPassword ? (
@@ -553,15 +747,14 @@ export default function AdminPanelPage() {
                   </div>
                 )}
 
-                {/* DELETE BUTTON */}
+                {/* CUSTOM DELETE BUTTON */}
                 <div className="pt-6 mt-6 border-t border-slate-100 dark:border-white/5">
                   <button 
                     onClick={handleDeleteUser}
-                    disabled={isDeleting}
-                    className="w-full py-3 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-3 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
                   >
-                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} 
-                    {isDeleting ? "Deleting..." : "Reject & Delete User"}
+                    <Trash2 className="w-4 h-4" /> 
+                    Reject & Delete User
                   </button>
                 </div>
               </div>
@@ -570,6 +763,59 @@ export default function AdminPanelPage() {
           </div>
         )}
       </div>
+
+      {/* --- NEW: CUSTOM CONFIRMATION MODAL --- */}
+      {isConfirmModalOpen && confirmConfig && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => !isConfirming && setIsConfirmModalOpen(false)} 
+          />
+          
+          {/* Modal Content */}
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
+            <div className="flex flex-col items-center text-center">
+              
+              <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                {confirmConfig.title}
+              </h3>
+              
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+                {confirmConfig.message}
+              </p>
+              
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  disabled={isConfirming}
+                  className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    setIsConfirming(true);
+                    await confirmConfig.onConfirm();
+                    setIsConfirming(false);
+                  }}
+                  disabled={isConfirming}
+                  className={`flex-1 py-3 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${confirmConfig.actionColor}`}
+                >
+                  {isConfirming && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isConfirming ? "Processing..." : confirmConfig.actionText}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

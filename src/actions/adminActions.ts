@@ -116,3 +116,39 @@ export async function deleteUser(userId: string) {
         return { error: "Network error" };
     }
 }
+
+export async function getAllTokens() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiKey = process.env.KORE_API_SECRET_KEY;
+    try {
+        const response = await fetch(`${apiUrl}?action=get_all_tokens`, {
+            method: 'GET',
+            headers: { 'x-api-key': apiKey || '' },
+            cache: 'no-store'
+        });
+        const data = await response.json();
+        return data.tokens || [];
+    } catch (error) {
+        return [];
+    }
+}
+
+export async function deleteToken(tokenId: string) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiKey = process.env.KORE_API_SECRET_KEY;
+    try {
+        const response = await fetch(`${apiUrl}?action=delete_token`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || ''
+            },
+            body: JSON.stringify({ tokenId })
+        });
+        const data = await response.json();
+        if (data.error) return { success: false, error: data.error };
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: "Network error" };
+    }
+}
