@@ -20,7 +20,8 @@ type ConfirmConfig = {
   actionText: string;
   actionColor: string;
   iconColor: string;
-  onConfirm: () => Promise<void>;
+  onConfirm: () => Promise<void> | void;
+  isAlertOnly?: boolean;
 };
 
 export default function LoansPage() {
@@ -99,7 +100,20 @@ export default function LoansPage() {
     return code; 
   };
 
-  // EXTENDED SMART LOAN ICONS & COLORS
+  // --- CUSTOM ALERT HELPER ---
+  const showAlert = (title: string, message: string, type: 'error' | 'success' = 'error') => {
+    setConfirmConfig({
+      title,
+      message,
+      actionText: "Got it",
+      actionColor: type === 'error' ? "bg-rose-600 hover:bg-rose-700" : "bg-emerald-600 hover:bg-emerald-700",
+      iconColor: type === 'error' ? "text-rose-600 bg-rose-50 dark:bg-rose-500/10" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10",
+      isAlertOnly: true,
+      onConfirm: () => { setIsConfirmModalOpen(false); }
+    });
+    setIsConfirmModalOpen(true);
+  };
+
   const getLoanIcon = (type: string) => {
       switch(type) {
           case 'mortgage': return { Icon: Home, color: "text-indigo-500", bg: "bg-indigo-500/10", fill: "bg-indigo-500" };
@@ -264,7 +278,9 @@ export default function LoansPage() {
   };
 
   const handleSaveLoan = async () => {
-      if (!addForm.name || !addForm.originalAmount || !addForm.payment) return alert("Please fill in Name, Amount, and Payment.");
+      if (!addForm.name || !addForm.originalAmount || !addForm.payment) {
+          return showAlert("Missing Information", "Please fill in the Name, Amount, and Payment fields.");
+      }
       setIsSubmitting(true);
       
       let result;
@@ -277,8 +293,9 @@ export default function LoansPage() {
       if (result.success) {
           await loadData();
           setIsDrawerOpen(false);
+          showAlert("Success", `Liability successfully ${drawerMode === 'add' ? 'logged' : 'updated'}.`, "success");
       } else {
-          alert(result.error);
+          showAlert("Action Failed", result.error);
       }
       setIsSubmitting(false);
   };
@@ -291,21 +308,24 @@ export default function LoansPage() {
       actionText: "Delete Liability",
       actionColor: "bg-rose-600 hover:bg-rose-700",
       iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
+      isAlertOnly: false,
       onConfirm: async () => {
         const result = await deleteLoan(selectedLoan.id, userId);
         if (result.success) {
           await loadData(); 
           setIsDrawerOpen(false);
-        } else alert("Error deleting liability: " + result.error);
-        setIsConfirmModalOpen(false);
+          setIsConfirmModalOpen(false);
+        } else {
+          showAlert("Error", "Error deleting liability: " + result.error);
+        }
       }
     });
     setIsConfirmModalOpen(true);
   };
 
   const handleMakePayment = async () => {
-      if (!fundingAccountId) return alert("Please select an account to pay from.");
-      if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert("Invalid payment amount.");
+      if (!fundingAccountId) return showAlert("Funding Source Required", "Please select an account to pay from.");
+      if (!paymentAmount || parseFloat(paymentAmount) <= 0) return showAlert("Invalid Amount", "Please enter a valid payment amount.");
       
       setIsSubmitting(true);
       const result = await processLoanPayment({
@@ -318,8 +338,9 @@ export default function LoansPage() {
       if (result.success) {
           await loadData();
           setIsDrawerOpen(false);
+          showAlert("Payment Successful", "Your ledger has been updated.", "success");
       } else {
-          alert(result.error);
+          showAlert("Payment Failed", result.error);
       }
       setIsSubmitting(false);
   };
@@ -333,7 +354,6 @@ export default function LoansPage() {
     );
   }
 
-  // RETURN FRAGMENT TO BREAK STACKING CONTEXT
   return (
     <>
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 relative min-h-[80vh] pb-24">
@@ -781,7 +801,7 @@ export default function LoansPage() {
 
               <div>
                 <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Next Payment Date</label>
-                <input type="date" value={addForm.nextDate} onChange={(e) => setAddForm({...addForm, nextDate: e.target.value})} disabled={isSubmitting} className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                <input type="date" value={addForm.nextDate} onChange={(e) => setAddForm({...addForm, nextDate: e.target.value})} disabled={isSubmitting} className="w-full min-w-full block appearance-none min-h-[50px] bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
               </div>
             </div>
           )}
@@ -806,7 +826,7 @@ export default function LoansPage() {
         )}
       </div>
 
-      {/* CONFIRMATION MODAL */}
+      {/* CONFIRMATION / ALERT MODAL */}
       {isConfirmModalOpen && confirmConfig && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div 
@@ -816,7 +836,11 @@ export default function LoansPage() {
           <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
             <div className="flex flex-col items-center text-center">
               <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
-                <AlertTriangle className="w-7 h-7" />
+                {confirmConfig.isAlertOnly && confirmConfig.actionColor.includes("emerald") ? (
+                  <CheckCircle2 className="w-7 h-7" />
+                ) : (
+                  <AlertTriangle className="w-7 h-7" />
+                )}
               </div>
               <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
                 {confirmConfig.title}
@@ -825,18 +849,21 @@ export default function LoansPage() {
                 {confirmConfig.message}
               </p>
               <div className="flex gap-3 w-full">
-                <button
-                  onClick={() => setIsConfirmModalOpen(false)}
-                  disabled={isConfirming}
-                  className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
+                {!confirmConfig.isAlertOnly && (
+                  <button
+                    onClick={() => setIsConfirmModalOpen(false)}
+                    disabled={isConfirming}
+                    className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     setIsConfirming(true);
                     await confirmConfig.onConfirm();
                     setIsConfirming(false);
+                    if (confirmConfig.isAlertOnly) setIsConfirmModalOpen(false);
                   }}
                   disabled={isConfirming}
                   className={`flex-1 py-3 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${confirmConfig.actionColor}`}
