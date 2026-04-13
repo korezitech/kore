@@ -2,8 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle } from "lucide-react";
-import { getUserAccounts, createAccount, updateAccount, deleteAccount } from "@/actions/accountActions";
+import { 
+  Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, 
+  MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle, Pin, PinOff, Edit3 
+} from "lucide-react";
+import { getUserAccounts, createAccount, updateAccount, deleteAccount, togglePinAccount } from "@/actions/accountActions";
 
 // Custom type for our Confirm Modal
 type ConfirmConfig = {
@@ -24,8 +27,9 @@ export default function AccountsPage() {
   const [isFetching, setIsFetching] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Privacy mode state
+  // Privacy & UI States
   const [showAmounts, setShowAmounts] = useState(true);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   // Custom Confirm Modal State
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -97,46 +101,43 @@ export default function AccountsPage() {
     
     if (drawerMode === "add") {
       const result = await createAccount({
-        userId,
-        name: accountName,
-        type: accountType,
-        currency,
-        balance,
-        accountNumber 
+        userId, name: accountName, type: accountType, currency, balance, accountNumber 
       });
-
       if (result.success) {
         await loadAccounts(); 
         setIsDrawerOpen(false);
-      } else {
-        alert(result.error);
-      }
+      } else alert(result.error);
     } else {
       const result = await updateAccount({
-        accountId: activeAccountId,
-        userId,
-        name: accountName,
-        type: accountType,
-        currency,
-        balance,
-        accountNumber
+        accountId: activeAccountId, userId, name: accountName, type: accountType, currency, balance, accountNumber
       });
-
       if (result.success) {
         await loadAccounts(); 
         setIsDrawerOpen(false);
-      } else {
-        alert(result.error);
-      }
+      } else alert(result.error);
     }
     
     setIsSubmitting(false);
   };
 
+  // NEW: Pin/Unpin Handler
+  const handleTogglePin = async (accountId: string, currentPinStatus: number) => {
+    const isPinned = currentPinStatus ? false : true;
+    
+    // Optimistic UI update (makes it feel instantly fast!)
+    setAccounts(accounts.map(acc => acc.id === accountId ? { ...acc, isPinned: isPinned ? 1 : 0 } : acc));
+    
+    // Tell the database
+    const result = await togglePinAccount(accountId, userId, isPinned);
+    if (!result.success) {
+      await loadAccounts(); // Revert if it fails
+      alert(result.error);
+    }
+  };
+
   // Custom Confirm Handler for Deleting Accounts
   const handleDeleteAccount = () => {
     if (!activeAccountId) return;
-    
     setConfirmConfig({
       title: "Delete Account",
       message: `Are you sure you want to permanently delete this account? This will remove all associated financial records and cannot be undone.`,
@@ -148,9 +149,7 @@ export default function AccountsPage() {
         if (result.success) {
           await loadAccounts(); 
           setIsDrawerOpen(false);
-        } else {
-          alert("Error deleting account: " + result.error);
-        }
+        } else alert("Error deleting account: " + result.error);
         setIsConfirmModalOpen(false);
       }
     });
@@ -160,7 +159,7 @@ export default function AccountsPage() {
   const getAccountsByType = (type: string) => accounts.filter(acc => acc.type === type);
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative pb-24">
       
       {/* HEADER */}
       <div className="flex items-center justify-between">
@@ -214,16 +213,39 @@ export default function AccountsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {getAccountsByType("fiat").map(acc => (
                   <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
-                    <button 
-                      onClick={() => openEditDrawer(acc)}
-                      className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer z-10"
-                    >
-                      <MoreHorizontal className="w-5 h-5" />
-                    </button>
+                    
+                    {/* DROPDOWN MENU */}
+                    <div className="absolute top-4 right-4 z-20">
+                      <button 
+                        onClick={() => setOpenMenuId(openMenuId === acc.id ? null : acc.id)}
+                        className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer"
+                      >
+                        <MoreHorizontal className="w-5 h-5" />
+                      </button>
+                      
+                      {openMenuId === acc.id && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
+                          <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
+                            <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                              <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
+                            </button>
+                            <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                              {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
+                              {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center mb-4 font-bold text-lg">
                       {getCurrencySymbol(acc.currency)}
                     </div>
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8 flex items-center gap-1.5">
+                      {acc.name}
+                      {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
+                    </p>
                     <p className="text-xs text-slate-400 mb-3">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
                     <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
                       {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
@@ -244,16 +266,39 @@ export default function AccountsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {getAccountsByType("business").map(acc => (
                   <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
-                    <button 
-                      onClick={() => openEditDrawer(acc)}
-                      className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer z-10"
-                    >
-                      <MoreHorizontal className="w-5 h-5" />
-                    </button>
+                    
+                    {/* DROPDOWN MENU */}
+                    <div className="absolute top-4 right-4 z-20">
+                      <button 
+                        onClick={() => setOpenMenuId(openMenuId === acc.id ? null : acc.id)}
+                        className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer"
+                      >
+                        <MoreHorizontal className="w-5 h-5" />
+                      </button>
+                      
+                      {openMenuId === acc.id && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
+                          <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
+                            <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                              <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
+                            </button>
+                            <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                              {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
+                              {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center mb-4">
                       <Building className="w-5 h-5" />
                     </div>
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8">{acc.name}</p>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8 flex items-center gap-1.5">
+                      {acc.name}
+                      {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
+                    </p>
                     <p className="text-xs text-slate-400 mb-3">{acc.accountNumber}</p>
                     <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
                       {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
@@ -280,7 +325,10 @@ export default function AccountsPage() {
                           <CreditCard className="w-5 h-5" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{acc.name}</p>
+                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                            {acc.name}
+                            {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
+                          </p>
                           <p className="text-xs text-slate-400">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
                         </div>
                       </div>
@@ -288,12 +336,32 @@ export default function AccountsPage() {
                         <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
                           {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
                         </h4>
-                        <button 
-                          onClick={() => openEditDrawer(acc)}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
-                        >
-                          <MoreHorizontal className="w-5 h-5" />
-                        </button>
+                        
+                        {/* DROPDOWN MENU FOR COMPACT ROWS */}
+                        <div className="relative">
+                          <button 
+                            onClick={() => setOpenMenuId(openMenuId === acc.id ? null : acc.id)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer relative z-20"
+                          >
+                            <MoreHorizontal className="w-5 h-5" />
+                          </button>
+                          
+                          {openMenuId === acc.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
+                              <div className="absolute top-10 right-0 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
+                                <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                  <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
+                                </button>
+                                <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                  {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
+                                  {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
                       </div>
                     </div>
                   ))}
@@ -315,7 +383,10 @@ export default function AccountsPage() {
                           <TrendingUp className="w-5 h-5" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{acc.name}</p>
+                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                            {acc.name}
+                            {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
+                          </p>
                           <p className="text-xs text-slate-400">{acc.accountNumber}</p>
                         </div>
                       </div>
@@ -323,12 +394,32 @@ export default function AccountsPage() {
                         <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
                           {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
                         </h4>
-                        <button 
-                          onClick={() => openEditDrawer(acc)}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 dark:hover:bg-[var(--color-brand-light)]/20 transition-all cursor-pointer"
-                        >
-                          <MoreHorizontal className="w-5 h-5" />
-                        </button>
+                        
+                        {/* DROPDOWN MENU FOR COMPACT ROWS */}
+                        <div className="relative">
+                          <button 
+                            onClick={() => setOpenMenuId(openMenuId === acc.id ? null : acc.id)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer relative z-20"
+                          >
+                            <MoreHorizontal className="w-5 h-5" />
+                          </button>
+                          
+                          {openMenuId === acc.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
+                              <div className="absolute top-10 right-0 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
+                                <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                  <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
+                                </button>
+                                <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                  {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
+                                  {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
                       </div>
                     </div>
                   ))}
@@ -407,7 +498,6 @@ export default function AccountsPage() {
               />
             </div>
 
-            {/* NEW: Account Number Input */}
             <div>
               <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Account Number / ID</label>
               <input 

@@ -71,3 +71,23 @@ export async function deleteAccount(accountId: string, userId: string) {
         return { success: false, error: "Network error" };
     }
 }
+
+export async function togglePinAccount(accountId: string, userId: string, isPinned: boolean) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiKey = process.env.KORE_API_SECRET_KEY;
+    
+    try {
+        const response = await fetch(`${apiUrl}?action=toggle_pin_account`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || ''
+            },
+            body: JSON.stringify({ accountId, userId, isPinned: isPinned ? 1 : 0 })
+        });
+        const data = await response.json();
+        return { success: !data.error, error: data.error };
+    } catch (error) {
+        return { success: false, error: "Network error" };
+    }
+}
