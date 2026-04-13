@@ -82,9 +82,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-slate-50 dark:bg-[#0B0F19] transition-colors duration-300">
       
-      {/* PRO DESKTOP SIDEBAR - z-index increased to 110 so the toggle button overlays the header */}
+      {/* PRO DESKTOP SIDEBAR - lowered z-index to 40 so drawers can cover it */}
       <aside 
-        className={`hidden md:flex flex-col border-r border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-2xl transition-all duration-300 relative z-[110] ${
+        className={`hidden md:flex flex-col border-r border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-2xl transition-all duration-300 relative z-40 ${
           isCollapsed ? "w-20" : "w-64"
         }`}
       >
@@ -143,7 +143,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* MAIN CONTENT CANVAS */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
-        <header className="h-20 flex items-center justify-between px-6 md:px-10 border-b border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-xl absolute top-0 left-0 right-0 z-[100]">
+        {/* HEADER - lowered z-index to 30 */}
+        <header className="h-20 flex items-center justify-between px-6 md:px-10 border-b border-slate-200/60 dark:border-white/5 bg-white/40 dark:bg-black/20 backdrop-blur-xl absolute top-0 left-0 right-0 z-30">
           
           {/* Dynamic Greeting */}
           <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
@@ -163,7 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-900"></span>
                   </button>
                   
-                  {/* Notification Dropdown - Fixed for Mobile */}
+                  {/* Notification Dropdown */}
                   {showNotifications && (
                     <div className="fixed top-20 left-4 right-4 md:absolute md:top-full md:left-auto md:-right-4 md:mt-2 md:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl md:shadow-xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
                       <div className="p-4 border-b border-slate-200 dark:border-white/10 flex justify-between items-center">
@@ -258,8 +259,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </main>
 
-      {/* MOBILE FLOATING IOS-STYLE DOCK */}
-      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[400px] z-50">
+      {/* MOBILE FLOATING IOS-STYLE DOCK - lowered z-index to 40 */}
+      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[400px] z-40">
         <nav className="backdrop-blur-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/50 dark:border-white/10 shadow-2xl rounded-full flex items-center justify-between px-2 py-2">
           {navigation.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/") && item.href !== "/dashboard";
