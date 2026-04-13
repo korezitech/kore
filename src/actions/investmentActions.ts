@@ -60,21 +60,27 @@ export async function deleteInvestment(investmentId: string, userId: string) {
 }
 
 // ========================================================
-// THE "NGX HACK" LIVE PRICE FETCHER
+// THE DUAL-MARKET LIVE ENGINE (YAHOO + KWAYISI SCRAPER)
 // ========================================================
 export async function getLiveAssetPrices(assets: any[]) {
     const prices: Record<string, { price: number, change24h: number }> = {};
 
-    await Promise.all(assets.map(async (asset) => {
+    // 1. Separate assets by region
+    const globalAssets = assets.filter(a => a.region !== 'NGN');
+    const ngxAssets = assets.filter(a => a.region === 'NGN');
+
+    // ==========================================
+    // 🌍 GLOBAL MARKETS (Yahoo Finance)
+    // ==========================================
+    await Promise.all(globalAssets.map(async (asset) => {
         try {
             let queryTicker = asset.ticker.toUpperCase();
             
             // Format trick based on asset type/region
             if (asset.type === 'Crypto' && !queryTicker.includes('-')) queryTicker = `${queryTicker}-USD`;
-            if (asset.region === 'NGN' && !queryTicker.includes('.')) queryTicker = `${queryTicker}.LG`;
             if (asset.region === 'GBP' && !queryTicker.includes('.')) queryTicker = `${queryTicker}.L`;
 
-            // Hit the public, undocumented Yahoo Finance endpoint
+            // Hit the public Yahoo Finance endpoint
             const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${queryTicker}`, { cache: 'no-store' });
             const data = await res.json();
 
@@ -94,9 +100,67 @@ export async function getLiveAssetPrices(assets: any[]) {
                 };
             }
         } catch (e) {
-            // Silently fail if ticker is invalid/unsupported, will just fallback to AvgPrice on frontend
+            // Silently fail if ticker is invalid
         }
     }));
+
+    // ==========================================
+    // 🇳🇬 NGX MARKETS (Your Kwayisi Scraper translated to Node.js)
+    // ==========================================
+    if (ngxAssets.length > 0) {
+        try {
+            // Fetch both pages concurrently just like your PHP array
+            const fetchOptions = { 
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, 
+                cache: 'no-store' as RequestCache 
+            };
+            
+            const [page1Res, page2Res] = await Promise.all([
+                fetch("https://afx.kwayisi.org/ngx/", fetchOptions),
+                fetch("https://afx.kwayisi.org/ngx/?page=2", fetchOptions)
+            ]);
+            
+            const combinedHtml = (await page1Res.text()) + (await page2Res.text());
+
+            // Regex parser that perfectly mimics XPath: //table//tr/td[4]
+            const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+            const scrapedData: Record<string, number> = {};
+            let match;
+            
+            while ((match = trRegex.exec(combinedHtml)) !== null) {
+                const rowHtml = match[1];
+                const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+                const cols = [];
+                let tdMatch;
+                
+                while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+                    // Strip HTML tags (like <a>) to get raw text
+                    cols.push(tdMatch[1].replace(/<[^>]*>?/gm, '').trim());
+                }
+                
+                // Ensure the row has enough columns (Ticker is col 0, Price is col 3)
+                if (cols.length >= 4) {
+                    const ticker = cols[0].toUpperCase();
+                    const price = parseFloat(cols[3].replace(/,/g, '')); // Remove commas
+                    if (!isNaN(price)) {
+                        scrapedData[ticker] = price;
+                    }
+                }
+            }
+
+            // Map the scraped data to your portfolio
+            ngxAssets.forEach(asset => {
+                const ticker = asset.ticker.toUpperCase();
+                if (scrapedData[ticker]) {
+                    // Kwayisi doesn't provide easy 24h %, so we set it to 0 to prevent UI crashes
+                    prices[ticker] = { price: scrapedData[ticker], change24h: 0 };
+                }
+            });
+
+        } catch (e) {
+            // Silently fail if scraping fails
+        }
+    }
 
     return prices;
 }
