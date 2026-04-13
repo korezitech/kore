@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Landmark, Plus, X, Home, Car, CreditCard, Banknote, 
-  Calendar, ShieldCheck, TrendingDown, CheckCircle2, Loader2, 
+  Calendar, ShieldCheck, TrendingDown, TrendingUp, CheckCircle2, Loader2, 
   Sparkles, AlertTriangle, Eye, EyeOff, Flag, MoreHorizontal, 
   Edit3, Trash2, HeartPulse, Smartphone, GraduationCap, Building2, Users
 } from "lucide-react";
 
 import { getUserLoans, createLoan, processLoanPayment, getLoanHistory, updateLoan, deleteLoan } from "@/actions/loanActions";
 import { getUserAccounts } from "@/actions/accountActions";
+import { getLiveExchangeRates } from "@/actions/currencyActions";
 
 const EXCHANGE_RATES = { "NGN": 1, "GBP": 2000, "USD": 1600 };
 
@@ -35,6 +36,7 @@ export default function LoansPage() {
   const [loans, setLoans] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [liveRates, setLiveRates] = useState<any>(null);
   const [isFetching, setIsFetching] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -74,15 +76,22 @@ export default function LoansPage() {
 
   const loadData = async () => {
     setIsFetching(true);
-    const [loanData, accData] = await Promise.all([
+    const [loanData, accData, rateData] = await Promise.all([
         getUserLoans(userId),
-        getUserAccounts(userId)
+        getUserAccounts(userId),
+        getLiveExchangeRates() // <-- Fetches the live rates
     ]);
+    
     setLoans(loanData || []);
     
     const fundingAccounts = (accData || []).filter((a: any) => a.type === 'fiat' || a.type === 'business');
     setAccounts(fundingAccounts);
     if (fundingAccounts.length > 0) setFundingAccountId(fundingAccounts[0].id);
+
+    // Save the rates to state!
+    if (rateData && rateData.success) {
+        setLiveRates(rateData.rates);
+    }
 
     setIsFetching(false);
   };
@@ -392,6 +401,7 @@ export default function LoansPage() {
                       {showAmounts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  
 
                   <div className="flex bg-slate-200/50 dark:bg-white/5 p-1 rounded-lg shadow-inner border border-black/5 dark:border-white/5">
                     {(["NGN", "GBP", "USD"] as const).map((cur) => (
@@ -413,9 +423,18 @@ export default function LoansPage() {
                 <h2 className="text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300">
                   {showAmounts ? overviewData.total : "••••••"}
                 </h2>
-              </div>
-              
-              <div className="flex flex-col gap-3 relative z-20">
+
+                {/* LIVE MARKET RATES INDICATOR */}
+                {liveRates && (
+                  <div className="flex items-center gap-4 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-4 bg-emerald-50 dark:bg-emerald-500/10 w-max px-2.5 py-1 rounded-md">
+                    <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3"/> $1 = ₦{formatMoney(liveRates.NGN)}</span>
+                    <span className="flex items-center gap-1">£1 = ₦{formatMoney(liveRates.NGN / liveRates.GBP)}</span>
+                  </div>
+                )}
+
+                </div>
+
+                <div className="flex flex-col gap-3 relative z-20">
                 <div className="flex items-center gap-2 text-rose-700 bg-rose-100 dark:text-rose-400 dark:bg-[#3D0A14]/90 backdrop-blur-md px-3 py-2 rounded-xl shadow-sm border border-rose-200 dark:border-rose-500/20">
                   <Calendar className="w-5 h-5" />
                   <div>

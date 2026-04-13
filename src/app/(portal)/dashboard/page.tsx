@@ -184,6 +184,14 @@ export default function DashboardPage() {
               <span className="text-sm font-bold">+2.4%</span>
             </div>
           </div>
+          
+          {/* LIVE MARKET RATES INDICATOR */}
+            {liveRates && (
+              <div className="flex items-center gap-4 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-4 bg-emerald-50 dark:bg-emerald-500/10 w-max px-2.5 py-1 rounded-md">
+                 <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3"/> $1 = ₦{formatBalance(liveRates.NGN)}</span>
+                 <span className="flex items-center gap-1">£1 = ₦{formatBalance(liveRates.NGN / liveRates.GBP)}</span>
+              </div>
+            )}
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-3 font-medium transition-all duration-300">
              {showAmounts ? netWorthData.sub : "Values hidden"}
           </p>
