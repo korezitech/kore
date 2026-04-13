@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, 
-  MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle, Pin, PinOff, Edit3 
+  MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle, Pin, PinOff, Edit3, RefreshCw, Link as LinkIcon 
 } from "lucide-react";
-import { getUserAccounts, createAccount, updateAccount, deleteAccount, togglePinAccount } from "@/actions/accountActions";
+import { getUserAccounts, createAccount, updateAccount, deleteAccount, togglePinAccount, syncLiveAccount } from "@/actions/accountActions";
 
 // Custom type for our Confirm Modal
 type ConfirmConfig = {
@@ -26,6 +26,7 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
 
   // Privacy & UI States
   const [showAmounts, setShowAmounts] = useState(true);
@@ -48,6 +49,11 @@ export default function AccountsPage() {
   const [accountNumber, setAccountNumber] = useState("");
   const [balance, setBalance] = useState("");
 
+  // Live Sync form states
+  const [isLiveSync, setIsLiveSync] = useState(false);
+  const [syncUrl, setSyncUrl] = useState("");
+  const [syncKey, setSyncKey] = useState("");
+
   useEffect(() => {
     if (userId) {
       loadAccounts();
@@ -64,7 +70,7 @@ export default function AccountsPage() {
   };
 
   // Helpers
-  const formatBalance = (val: string | number) => Number(val).toLocaleString();
+  const formatBalance = (val: string | number) => Number(val).toLocaleString('en-US', { minimumFractionDigits: 2 });
   const getCurrencySymbol = (code: string) => {
     if (code === "NGN") return "₦";
     if (code === "GBP") return "£";
@@ -80,6 +86,9 @@ export default function AccountsPage() {
     setAccountName("");
     setAccountNumber("");
     setBalance("");
+    setIsLiveSync(false);
+    setSyncUrl("");
+    setSyncKey("");
     setIsDrawerOpen(true);
   };
 
@@ -91,26 +100,38 @@ export default function AccountsPage() {
     setAccountName(acc.name);
     setAccountNumber(acc.accountNumber || "");
     setBalance(acc.balance);
+    setIsLiveSync(!!acc.syncUrl);
+    setSyncUrl(acc.syncUrl || "");
+    setSyncKey(acc.syncKey || "");
     setIsDrawerOpen(true);
   };
 
   const handleSaveAccount = async () => {
-    if (!accountName || !balance || !accountNumber) return alert("Please fill in all fields (Name, Number, and Balance)");
+    if (!accountName || !accountNumber) return alert("Please fill in Account Name and Number.");
+    if (!isLiveSync && !balance) return alert("Please provide a starting balance.");
+    if (isLiveSync && (!syncUrl || !syncKey)) return alert("Please provide the API URL and Secret Key for Live Sync.");
     
     setIsSubmitting(true);
     
+    const accountData = {
+      userId, 
+      name: accountName, 
+      type: accountType, 
+      currency, 
+      balance: balance || "0", 
+      accountNumber,
+      syncUrl: isLiveSync ? syncUrl : null,
+      syncKey: isLiveSync ? syncKey : null
+    };
+    
     if (drawerMode === "add") {
-      const result = await createAccount({
-        userId, name: accountName, type: accountType, currency, balance, accountNumber 
-      });
+      const result = await createAccount(accountData);
       if (result.success) {
         await loadAccounts(); 
         setIsDrawerOpen(false);
       } else alert(result.error);
     } else {
-      const result = await updateAccount({
-        accountId: activeAccountId, userId, name: accountName, type: accountType, currency, balance, accountNumber
-      });
+      const result = await updateAccount({ ...accountData, accountId: activeAccountId });
       if (result.success) {
         await loadAccounts(); 
         setIsDrawerOpen(false);
@@ -133,6 +154,21 @@ export default function AccountsPage() {
       await loadAccounts(); // Revert if it fails
       alert(result.error);
     }
+  };
+
+  // TRIGGER ERP SYNC
+  const handleTriggerSync = async (accountId: string) => {
+    setSyncingAccountId(accountId);
+    const result = await syncLiveAccount(accountId, userId);
+    if (result.success) {
+        // Update local state immediately so they see the new number
+        setAccounts(accounts.map(acc => acc.id === accountId ? { ...acc, balance: result.newBalance } : acc));
+        // Optional: Replace alert with toast notification later
+        // alert("Account synchronized successfully!"); 
+    } else {
+        alert("Sync Failed: " + result.error);
+    }
+    setSyncingAccountId(null);
   };
 
   // Custom Confirm Handler for Deleting Accounts
@@ -227,7 +263,12 @@ export default function AccountsPage() {
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
                           <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
-                            <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                            {!!acc.syncUrl && (
+                                <button onClick={() => { handleTriggerSync(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                  <RefreshCw className="w-4 h-4" /> Fetch Live Balance
+                                </button>
+                            )}
+                            <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
                               <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
                             </button>
                             <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
@@ -242,13 +283,23 @@ export default function AccountsPage() {
                     <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center mb-4 font-bold text-lg">
                       {getCurrencySymbol(acc.currency)}
                     </div>
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8 flex items-center gap-1.5">
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8 flex items-center gap-1.5 mb-1">
                       {acc.name}
                       {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
                     </p>
-                    <p className="text-xs text-slate-400 mb-3">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
+                    
+                    {!!acc.syncUrl ? (
+                       <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md mb-3">
+                         <div className={`w-1.5 h-1.5 bg-emerald-500 rounded-full ${syncingAccountId === acc.id ? 'animate-ping' : 'animate-pulse'}`}></div> Live Sync
+                       </span>
+                    ) : (
+                       <p className="text-xs text-slate-400 mb-3">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
+                    )}
+
                     <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
-                      {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                      {showAmounts ? (
+                          syncingAccountId === acc.id ? <span className="text-slate-400 text-lg animate-pulse">Syncing...</span> : `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}`
+                      ) : "••••••"}
                     </h4>
                   </div>
                 ))}
@@ -265,7 +316,7 @@ export default function AccountsPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {getAccountsByType("business").map(acc => (
-                  <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative">
+                  <div key={acc.id} className="glass-panel p-5 group hover:border-[var(--color-brand-deep)]/50 transition-colors relative border-t-2 border-t-transparent hover:border-t-orange-500">
                     
                     {/* DROPDOWN MENU */}
                     <div className="absolute top-4 right-4 z-20">
@@ -280,7 +331,12 @@ export default function AccountsPage() {
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
                           <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
-                            <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                            {!!acc.syncUrl && (
+                                <button onClick={() => { handleTriggerSync(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                  <RefreshCw className="w-4 h-4" /> Fetch Live Balance
+                                </button>
+                            )}
+                            <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
                               <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
                             </button>
                             <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
@@ -295,13 +351,23 @@ export default function AccountsPage() {
                     <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center mb-4">
                       <Building className="w-5 h-5" />
                     </div>
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8 flex items-center gap-1.5">
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 pr-8 flex items-center gap-1.5 mb-1">
                       {acc.name}
                       {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
                     </p>
-                    <p className="text-xs text-slate-400 mb-3">{acc.accountNumber}</p>
+                    
+                    {!!acc.syncUrl ? (
+                       <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-500/10 px-2 py-0.5 rounded-md mb-3">
+                         <div className={`w-1.5 h-1.5 bg-orange-500 rounded-full ${syncingAccountId === acc.id ? 'animate-ping' : 'animate-pulse'}`}></div> Live Sync
+                       </span>
+                    ) : (
+                       <p className="text-xs text-slate-400 mb-3">{acc.accountNumber}</p>
+                    )}
+
                     <h4 className="text-2xl font-bold text-slate-900 dark:text-white">
-                      {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                      {showAmounts ? (
+                          syncingAccountId === acc.id ? <span className="text-slate-400 text-lg animate-pulse">Syncing...</span> : `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}`
+                      ) : "••••••"}
                     </h4>
                   </div>
                 ))}
@@ -325,19 +391,27 @@ export default function AccountsPage() {
                           <CreditCard className="w-5 h-5" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 mb-0.5">
                             {acc.name}
                             {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
                           </p>
-                          <p className="text-xs text-slate-400">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
+                          
+                          {!!acc.syncUrl ? (
+                             <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                               <div className={`w-1.5 h-1.5 bg-emerald-500 rounded-full ${syncingAccountId === acc.id ? 'animate-ping' : 'animate-pulse'}`}></div> Live Sync
+                             </span>
+                          ) : (
+                             <p className="text-xs text-slate-400">•••• {acc.accountNumber?.slice(-4) || '****'}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
-                          {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                          {showAmounts ? (
+                              syncingAccountId === acc.id ? <span className="text-slate-400 text-sm animate-pulse">Syncing...</span> : `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}`
+                          ) : "••••••"}
                         </h4>
                         
-                        {/* DROPDOWN MENU FOR COMPACT ROWS */}
                         <div className="relative">
                           <button 
                             onClick={() => setOpenMenuId(openMenuId === acc.id ? null : acc.id)}
@@ -350,7 +424,12 @@ export default function AccountsPage() {
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
                               <div className="absolute top-10 right-0 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
-                                <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                {!!acc.syncUrl && (
+                                    <button onClick={() => { handleTriggerSync(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                      <RefreshCw className="w-4 h-4" /> Fetch Live Balance
+                                    </button>
+                                )}
+                                <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
                                   <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
                                 </button>
                                 <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
@@ -361,7 +440,6 @@ export default function AccountsPage() {
                             </>
                           )}
                         </div>
-
                       </div>
                     </div>
                   ))}
@@ -383,19 +461,27 @@ export default function AccountsPage() {
                           <TrendingUp className="w-5 h-5" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 mb-0.5">
                             {acc.name}
                             {!!acc.isPinned && <Pin className="w-3 h-3 text-[var(--color-brand-deep)]" fill="currentColor" />}
                           </p>
-                          <p className="text-xs text-slate-400">{acc.accountNumber}</p>
+                          
+                          {!!acc.syncUrl ? (
+                             <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                               <div className={`w-1.5 h-1.5 bg-emerald-500 rounded-full ${syncingAccountId === acc.id ? 'animate-ping' : 'animate-pulse'}`}></div> Live Sync
+                             </span>
+                          ) : (
+                             <p className="text-xs text-slate-400">{acc.accountNumber}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                          {showAmounts ? `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}` : "••••••"}
+                          {showAmounts ? (
+                              syncingAccountId === acc.id ? <span className="text-slate-400 text-sm animate-pulse">Syncing...</span> : `${getCurrencySymbol(acc.currency)}${formatBalance(acc.balance)}`
+                          ) : "••••••"}
                         </h4>
                         
-                        {/* DROPDOWN MENU FOR COMPACT ROWS */}
                         <div className="relative">
                           <button 
                             onClick={() => setOpenMenuId(openMenuId === acc.id ? null : acc.id)}
@@ -408,7 +494,12 @@ export default function AccountsPage() {
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
                               <div className="absolute top-10 right-0 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
-                                <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                {!!acc.syncUrl && (
+                                    <button onClick={() => { handleTriggerSync(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                      <RefreshCw className="w-4 h-4" /> Fetch Live Balance
+                                    </button>
+                                )}
+                                <button onClick={() => { openEditDrawer(acc); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
                                   <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
                                 </button>
                                 <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
@@ -419,7 +510,6 @@ export default function AccountsPage() {
                             </>
                           )}
                         </div>
-
                       </div>
                     </div>
                   ))}
@@ -430,30 +520,17 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* ========================================= */}
       {/* SLIDE-OUT DRAWER OVERLAY & PANEL */}
-      {/* ========================================= */}
-
       {isDrawerOpen && (
-        <div 
-          className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
-          onClick={() => !isSubmitting && setIsDrawerOpen(false)}
-        />
+        <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300" onClick={() => !isSubmitting && setIsDrawerOpen(false)} />
       )}
 
-      <div 
-        className={`fixed top-0 right-0 h-[100dvh] w-full max-w-md bg-white dark:bg-[#0B0F19] border-l border-slate-200 dark:border-white/10 shadow-2xl z-[70] transform transition-transform duration-300 ease-in-out flex flex-col ${
-          isDrawerOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
+      <div className={`fixed top-0 right-0 h-[100dvh] w-full max-w-md bg-white dark:bg-[#0B0F19] border-l border-slate-200 dark:border-white/10 shadow-2xl z-[70] transform transition-transform duration-300 ease-in-out flex flex-col ${isDrawerOpen ? "translate-x-0" : "translate-x-full"}`}>
         <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">
             {drawerMode === "add" ? "Add New Account" : "Edit Account"}
           </h3>
-          <button 
-            onClick={() => !isSubmitting && setIsDrawerOpen(false)}
-            className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-          >
+          <button onClick={() => !isSubmitting && setIsDrawerOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -488,138 +565,73 @@ export default function AccountsPage() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Account Name</label>
-              <input 
-                type="text" 
-                value={accountName}
-                onChange={(e) => setAccountName(e.target.value)}
-                disabled={isSubmitting}
-                placeholder="e.g. Zenith Checking, AMEX" 
-                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all disabled:opacity-50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Account Number / ID</label>
-              <input 
-                type="text" 
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-                disabled={isSubmitting}
-                placeholder="e.g. 1234567890" 
-                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all disabled:opacity-50"
-              />
+              <input type="text" value={accountName} onChange={(e) => setAccountName(e.target.value)} disabled={isSubmitting} placeholder="e.g. Zenith Checking, AMEX" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all disabled:opacity-50" />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Account Number / ID</label>
+                <input type="text" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} disabled={isSubmitting} placeholder="e.g. 1234567890" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all disabled:opacity-50" />
+              </div>
+              <div>
                 <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Currency</label>
-                <div className="flex bg-slate-100 dark:bg-black/20 p-1 rounded-xl border border-slate-200 dark:border-white/10">
+                <div className="flex bg-slate-100 dark:bg-black/20 p-1 rounded-xl border border-slate-200 dark:border-white/10 h-[46px]">
                   {["NGN", "GBP", "USD"].map((cur) => (
-                    <button
-                      key={cur}
-                      onClick={() => setCurrency(cur)}
-                      disabled={isSubmitting}
-                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all disabled:opacity-50 ${
-                        currency === cur 
-                          ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" 
-                          : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                      }`}
-                    >
+                    <button key={cur} onClick={() => setCurrency(cur)} disabled={isSubmitting} className={`flex-1 text-xs font-bold rounded-lg transition-all disabled:opacity-50 ${currency === cur ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}`}>
                       {cur}
                     </button>
                   ))}
                 </div>
               </div>
-              
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Balance</label>
-                <input 
-                  type="number" 
-                  value={balance}
-                  onChange={(e) => setBalance(e.target.value)}
-                  disabled={isSubmitting}
-                  placeholder="0.00" 
-                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all font-medium disabled:opacity-50"
-                />
-              </div>
+            </div>
+
+            {/* LIVE SYNC CONFIGURATION */}
+            <div className="mt-8 p-5 rounded-2xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-500/5">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <LinkIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">Enable API Live Sync</h4>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={isLiveSync} onChange={(e) => setIsLiveSync(e.target.checked)} disabled={isSubmitting} />
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"></div>
+                    </label>
+                </div>
+                
+                {isLiveSync ? (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">API Endpoint URL</label>
+                            <input type="url" value={syncUrl} onChange={(e) => setSyncUrl(e.target.value)} disabled={isSubmitting} placeholder="https://yourstore.com/api.php" className="w-full bg-white dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Secret Key</label>
+                            <input type="password" value={syncKey} onChange={(e) => setSyncKey(e.target.value)} disabled={isSubmitting} placeholder="Enter your secure token key" className="w-full bg-white dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all font-mono" />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="animate-in fade-in">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Manual Starting Balance</label>
+                        <input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} disabled={isSubmitting} placeholder="0.00" className="w-full bg-white dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+                    </div>
+                )}
             </div>
           </div>
         </div>
 
         <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 flex gap-3 items-center">
           {drawerMode === "edit" && (
-            <button 
-              onClick={handleDeleteAccount}
-              disabled={isSubmitting}
-              className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors shrink-0 disabled:opacity-50"
-            >
+            <button onClick={handleDeleteAccount} disabled={isSubmitting} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors shrink-0 disabled:opacity-50">
               {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
             </button>
           )}
-          
-          <button 
-            onClick={() => setIsDrawerOpen(false)}
-            disabled={isSubmitting}
-            className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={handleSaveAccount}
-            disabled={isSubmitting}
-            className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70"
-          >
+          <button onClick={() => setIsDrawerOpen(false)} disabled={isSubmitting} className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50">Cancel</button>
+          <button onClick={handleSaveAccount} disabled={isSubmitting} className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70">
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
             {drawerMode === "add" ? "Save Account" : "Update"}
           </button>
         </div>
-
       </div>
-
-      {/* --- CUSTOM CONFIRMATION MODAL --- */}
-      {isConfirmModalOpen && confirmConfig && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-          <div 
-            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
-            onClick={() => !isConfirming && setIsConfirmModalOpen(false)} 
-          />
-          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
-            <div className="flex flex-col items-center text-center">
-              <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
-                <AlertTriangle className="w-7 h-7" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                {confirmConfig.title}
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
-                {confirmConfig.message}
-              </p>
-              <div className="flex gap-3 w-full">
-                <button
-                  onClick={() => setIsConfirmModalOpen(false)}
-                  disabled={isConfirming}
-                  className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    setIsConfirming(true);
-                    await confirmConfig.onConfirm();
-                    setIsConfirming(false);
-                  }}
-                  disabled={isConfirming}
-                  className={`flex-1 py-3 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${confirmConfig.actionColor}`}
-                >
-                  {isConfirming && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isConfirming ? "Processing..." : confirmConfig.actionText}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

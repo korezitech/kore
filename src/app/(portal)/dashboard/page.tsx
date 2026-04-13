@@ -201,9 +201,15 @@ export default function DashboardPage() {
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${colorClass}`}>
                   <Icon className="w-5 h-5" />
                 </div>
-                {acc.type === 'business' ? (
-                   <span className="flex items-center gap-1.5 text-xs font-bold text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-500/10 px-2.5 py-1 rounded-full shadow-sm">
-                     <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></div> Live Sync
+                {!!acc.syncUrl ? (
+                   <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full shadow-sm ${
+                     acc.type === 'business' 
+                       ? 'text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-500/10' 
+                       : 'text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10'
+                   }`}>
+                     <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                       acc.type === 'business' ? 'bg-orange-500' : 'bg-emerald-500'
+                     }`}></div> Live Sync
                    </span>
                 ) : (
                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-white/10 px-2.5 py-1 rounded-full shadow-sm uppercase tracking-wider">
