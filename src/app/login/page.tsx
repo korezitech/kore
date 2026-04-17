@@ -11,7 +11,8 @@ import { redeemInviteToken } from "@/actions/authActions";
 import { signIn } from "next-auth/react";
 
 export default function LoginPage() {
-  const [view, setView] = useState<"login" | "redeem" | "success">("login");
+  // NEW: Added "2fa" to the view states
+  const [view, setView] = useState<"login" | "redeem" | "success" | "2fa">("login");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [fullName, setFullName] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState(""); // NEW: State for the 6-digit code
   const [showPassword, setShowPassword] = useState(false);
 
   const handleAction = async (e: React.FormEvent) => {
@@ -34,19 +36,34 @@ export default function LoginPage() {
       formData.append("name", fullName);
       formData.append("email", email);
 
-      // Call your API via the Next.js Server Action
       const result = await redeemInviteToken(formData);
-
       setIsLoading(false);
 
-      // Handle the response
       if (result.error) {
         setErrorMessage(result.error);
       } else if (result.success) {
         setView("success");
       }
-    } else {
-      // --- REAL NEXTAUTH LOGIN FLOW ---
+    } 
+    // NEW: Handle the 2FA Submission
+    else if (view === "2fa") {
+      const result = await signIn("credentials", {
+        redirect: false,
+        email: email,
+        password: password,
+        twoFactorCode: twoFactorCode, // Send the code alongside the credentials
+      });
+
+      setIsLoading(false);
+
+      if (result?.error) {
+        setErrorMessage(result.error);
+      } else {
+        window.location.href = "/dashboard";
+      }
+    } 
+    // Standard Login Flow
+    else {
       const result = await signIn("credentials", {
         redirect: false,
         email: email,
@@ -56,10 +73,15 @@ export default function LoginPage() {
       setIsLoading(false);
 
       if (result?.error) {
-        // If they type the wrong password or are still "pending"
-        setErrorMessage(result.error);
+        // THE MAGIC TRICK: Catch the 2FA flag from the backend
+        if (result.error === "2FA_REQUIRED") {
+          setView("2fa");
+          setErrorMessage(""); // Clear any errors
+        } else {
+          setErrorMessage(result.error);
+        }
       } else {
-        // Success! The Gatekeeper will now let us through to the dashboard.
+        // Success! No 2FA required, or bypassed successfully.
         window.location.href = "/dashboard";
       }
     }
@@ -89,31 +111,33 @@ export default function LoginPage() {
 
         {view !== "success" ? (
           <>
-            {/* View Toggle */}
-            <div className="flex bg-slate-100 dark:bg-white/5 p-1 rounded-xl mb-8 border border-slate-200 dark:border-white/5">
-              <button 
-                type="button"
-                onClick={() => { setView('login'); setErrorMessage(''); }} 
-                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
-                  view === 'login' 
-                    ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
-                }`}
-              >
-                Log In
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setView('redeem'); setErrorMessage(''); }} 
-                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
-                  view === 'redeem' 
-                    ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
-                }`}
-              >
-                Redeem Token
-              </button>
-            </div>
+            {/* View Toggle - Hides when in 2FA mode to lock focus */}
+            {(view === "login" || view === "redeem") && (
+              <div className="flex bg-slate-100 dark:bg-white/5 p-1 rounded-xl mb-8 border border-slate-200 dark:border-white/5">
+                <button 
+                  type="button"
+                  onClick={() => { setView('login'); setErrorMessage(''); }} 
+                  className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+                    view === 'login' 
+                      ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Log In
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => { setView('redeem'); setErrorMessage(''); }} 
+                  className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+                    view === 'redeem' 
+                      ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  Redeem Token
+                </button>
+              </div>
+            )}
 
             {/* Forms */}
             <form onSubmit={handleAction} className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -153,50 +177,80 @@ export default function LoginPage() {
                 </>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    type="email" 
-                    name="email"
-                    required
-                    placeholder="name@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
-                  />
-                </div>
-              </div>
-
-              {view === 'login' && (
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Password</label>
-                    <button type="button" className="text-xs font-bold text-[var(--color-brand-deep)] hover:underline">Forgot?</button>
+              {/* Standard Email & Password Fields */}
+              {(view === "login" || view === "redeem") && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="email" 
+                        name="email"
+                        required
+                        placeholder="name@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                      />
+                    </div>
                   </div>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input 
-                      type={showPassword ? "text" : "password"}
-                      name="password"
-                      required
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors focus:outline-none"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
+
+                  {view === 'login' && (
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Password</label>
+                        <button type="button" className="text-xs font-bold text-[var(--color-brand-deep)] hover:underline">Forgot?</button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type={showPassword ? "text" : "password"}
+                          name="password"
+                          required
+                          placeholder="••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors focus:outline-none"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* NEW: The 2FA Input UI */}
+              {view === "2fa" && (
+                <div className="space-y-4 animate-in zoom-in-95 duration-300">
+                  <div className="text-center mb-6">
+                    <div className="w-16 h-16 rounded-full bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] flex items-center justify-center mx-auto mb-4">
+                      <ShieldCheck className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Two-Factor Auth</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                      Please enter the 6-digit security code sent to your registered email address.
+                    </p>
+                  </div>
+
+                  <div>
+                    <div className="relative">
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="000000"
+                        value={twoFactorCode}
+                        onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-12 pr-4 py-4 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-[0.5em] text-center text-xl font-bold"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -208,20 +262,35 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <button 
-                type="submit" 
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white py-3.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-[var(--color-brand-deep)]/20 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:hover:scale-100 mt-2"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    {view === 'login' ? 'Authenticate Session' : 'Request Activation'}
-                    <ArrowRight className="w-4 h-4" />
-                  </>
+              <div className="pt-2">
+                <button 
+                  type="submit" 
+                  disabled={isLoading}
+                  className="w-full flex items-center justify-center gap-2 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white py-3.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-[var(--color-brand-deep)]/20 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:hover:scale-100"
+                >
+                  {isLoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      {view === 'login' ? 'Authenticate Session' : view === 'redeem' ? 'Request Activation' : 'Verify Code'}
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+
+                {/* Cancel 2FA Button */}
+                {view === '2fa' && (
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => { setView("login"); setTwoFactorCode(""); setErrorMessage(""); }}
+                    className="w-full mt-4 flex items-center justify-center text-sm font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                  >
+                    Cancel & Return to Login
+                  </button>
                 )}
-              </button>
+              </div>
+
             </form>
 
             <div className="mt-8 pt-6 border-t border-slate-100 dark:border-white/5 flex items-start gap-3">
