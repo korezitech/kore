@@ -90,75 +90,49 @@ export async function getLiveAssetPrices(assets: any[]) {
         }
     }));
 
-    // 🇳🇬 2. NGX MARKETS (The Cloudflare-Bypass Proxy Bridge)
+    // 🇳🇬 2. NGX MARKETS (The Hostinger PHP Bridge)
     if (ngxAssets.length > 0) {
         try {
-            // We route the URLs through AllOrigins to strip Cloudflare blocks and get pure HTML
-            const kwayisiUrl1 = encodeURIComponent("https://afx.kwayisi.org/ngx/");
-            const kwayisiUrl2 = encodeURIComponent("https://afx.kwayisi.org/ngx/?page=2");
+            // Extract the tickers your user owns
+            const tickers = ngxAssets.map(a => a.ticker.toUpperCase());
             
-            const [page1Res, page2Res] = await Promise.all([
-                fetch(`https://api.allorigins.win/raw?url=${kwayisiUrl1}`, { cache: 'no-store' }),
-                fetch(`https://api.allorigins.win/raw?url=${kwayisiUrl2}`, { cache: 'no-store' })
-            ]);
-            
-            const combinedHtml = (await page1Res.text()) + (await page2Res.text());
+            // Automatically swap api.php in your environment variable to point to ngx_scraper.php
+            const scraperUrl = apiUrl?.replace('api.php', 'ngx_scraper.php') || '';
 
-            const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-            const scrapedData: Record<string, { price: number, change: number }> = {};
-            let match;
-            
-            while ((match = trRegex.exec(combinedHtml)) !== null) {
-                const rowHtml = match[1];
-                
-                // Only extract <td> cells to prevent <th> misalignments
-                const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-                const cols = [];
-                let cellMatch;
-                
-                while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-                    cols.push(cellMatch[1].replace(/<[^>]*>?/gm, '').trim());
-                }
-                
-                // Kwayisi Columns: [0:Ticker, 1:Name, 2:Volume, 3:Price, 4:Change]
-                if (cols.length >= 5) {
-                    const ticker = cols[0].toUpperCase();
-                    const price = parseFloat(cols[3].replace(/,/g, '')); 
-                    
-                    // Handle Kwayisi's change format which includes raw +/- signs
-                    let changeRaw = cols[4].replace(/,/g, '').replace(/\+/g, '').trim();
-                    const change = parseFloat(changeRaw) || 0;
-                    
-                    if (!isNaN(price) && ticker) {
-                        scrapedData[ticker] = { price, change };
-                    }
-                }
-            }
-
-            // Map the freshly scraped data to the user's specific assets
-            ngxAssets.forEach(asset => {
-                const assetTicker = asset.ticker.toUpperCase();
-                
-                // Fuzzy Match (Handles cases like "ACCESSCORP" vs "ACCESS")
-                const matchedKey = Object.keys(scrapedData).find(t => 
-                    t === assetTicker || assetTicker.startsWith(t) || t.startsWith(assetTicker)
-                );
-
-                if (matchedKey) {
-                    const data = scrapedData[matchedKey];
-                    let changePercent = 0;
-                    
-                    // Convert raw numeric change back into a percentage for the UI
-                    if (data.change !== 0) {
-                        const prevClose = data.price - data.change;
-                        if (prevClose > 0) changePercent = (data.change / prevClose) * 100;
-                    }
-                    prices[asset.ticker] = { price: data.price, change24h: Number(changePercent.toFixed(2)) };
-                }
+            // Ask Hostinger to scrape Kwayisi for us
+            const res = await fetch(scraperUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tickers }),
+                cache: 'no-store'
             });
 
+            const responseData = await res.json();
+
+            // Map Hostinger's clean JSON back into the Next.js UI
+            if (responseData.status === 'success' && responseData.data) {
+                ngxAssets.forEach(asset => {
+                    const ticker = asset.ticker.toUpperCase();
+                    
+                    if (responseData.data[ticker]) {
+                        const { price, change } = responseData.data[ticker];
+                        let changePercent = 0;
+                        
+                        // Convert absolute change to percentage
+                        if (change !== 0) {
+                            const prevClose = price - change;
+                            if (prevClose > 0) changePercent = (change / prevClose) * 100;
+                        }
+                        
+                        prices[asset.ticker] = { 
+                            price: price, 
+                            change24h: Number(changePercent.toFixed(2)) 
+                        };
+                    }
+                });
+            }
         } catch (e) {
-            console.error("Proxy Bridge Scrape Failed:", e);
+            console.error("Hostinger PHP Bridge Failed:", e);
         }
     }
 
