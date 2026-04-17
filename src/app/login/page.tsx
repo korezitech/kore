@@ -1,36 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { 
   Mail, Lock, Key, User, ArrowRight, ShieldCheck, 
-  ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff 
+  ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff, RefreshCw 
 } from "lucide-react";
-import { redeemInviteToken } from "@/actions/authActions";
+import { redeemInviteToken, resend2FACode } from "@/actions/authActions";
 import { signIn } from "next-auth/react";
 
 export default function LoginPage() {
-  // NEW: Added "2fa" to the view states
   const [view, setView] = useState<"login" | "redeem" | "success" | "2fa">("login");
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   // Form States
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [fullName, setFullName] = useState("");
-  const [twoFactorCode, setTwoFactorCode] = useState(""); // NEW: State for the 6-digit code
+  const [twoFactorCode, setTwoFactorCode] = useState(""); 
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Frontend Cooldown Timer
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   const handleAction = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setErrorMessage(""); // Clear old errors
+    setErrorMessage(""); 
+    setSuccessMessage("");
 
     if (view === "redeem") {
-      // Pack the React state into FormData for the Server Action
       const formData = new FormData();
       formData.append("token", token);
       formData.append("name", fullName);
@@ -45,13 +56,12 @@ export default function LoginPage() {
         setView("success");
       }
     } 
-    // NEW: Handle the 2FA Submission
     else if (view === "2fa") {
       const result = await signIn("credentials", {
         redirect: false,
         email: email,
         password: password,
-        twoFactorCode: twoFactorCode, // Send the code alongside the credentials
+        twoFactorCode: twoFactorCode, 
       });
 
       setIsLoading(false);
@@ -62,7 +72,6 @@ export default function LoginPage() {
         window.location.href = "/dashboard";
       }
     } 
-    // Standard Login Flow
     else {
       const result = await signIn("credentials", {
         redirect: false,
@@ -73,35 +82,47 @@ export default function LoginPage() {
       setIsLoading(false);
 
       if (result?.error) {
-        // THE MAGIC TRICK: Catch the 2FA flag from the backend
         if (result.error === "2FA_REQUIRED") {
           setView("2fa");
-          setErrorMessage(""); // Clear any errors
+          setErrorMessage(""); 
+          setResendCooldown(60); // Start 60s cooldown immediately
         } else {
           setErrorMessage(result.error);
         }
       } else {
-        // Success! No 2FA required, or bypassed successfully.
         window.location.href = "/dashboard";
       }
+    }
+  };
+
+  // --- NEW RESEND LOGIC ---
+  const handleResendCode = async () => {
+    setIsResending(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+    
+    const result = await resend2FACode(email);
+    
+    setIsResending(false);
+    if (result.success) {
+      setSuccessMessage("A new code has been sent to your email.");
+      setResendCooldown(60); // Reset the 60-second local timer
+    } else {
+      setErrorMessage(result.error || "Failed to resend code.");
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 dark:bg-[#0B0F19] relative overflow-hidden selection:bg-[var(--color-brand-deep)] selection:text-white">
       
-      {/* Ambient Background Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[var(--color-brand-deep)]/10 dark:bg-[var(--color-brand-deep)]/20 blur-[100px] rounded-full pointer-events-none"></div>
 
-      {/* Back to Home Navigation */}
       <Link href="/" className="absolute top-8 left-6 md:left-12 flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors z-20">
         <ChevronLeft className="w-4 h-4" /> Home
       </Link>
 
-      {/* Main Authentication Card */}
       <div className="glass-panel w-full max-w-md p-8 md:p-10 relative z-10 flex flex-col shadow-2xl">
         
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <div className="relative w-32 h-10">
             <Image src="/kore-coloured.png" alt="KORE Logo" fill className="block dark:hidden object-contain" />
@@ -111,7 +132,6 @@ export default function LoginPage() {
 
         {view !== "success" ? (
           <>
-            {/* View Toggle - Hides when in 2FA mode to lock focus */}
             {(view === "login" || view === "redeem") && (
               <div className="flex bg-slate-100 dark:bg-white/5 p-1 rounded-xl mb-8 border border-slate-200 dark:border-white/5">
                 <button 
@@ -139,7 +159,6 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Forms */}
             <form onSubmit={handleAction} className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
               
               {view === 'redeem' && (
@@ -177,7 +196,6 @@ export default function LoginPage() {
                 </>
               )}
 
-              {/* Standard Email & Password Fields */}
               {(view === "login" || view === "redeem") && (
                 <>
                   <div>
@@ -226,7 +244,6 @@ export default function LoginPage() {
                 </>
               )}
 
-              {/* NEW: The 2FA Input UI */}
               {view === "2fa" && (
                 <div className="space-y-4 animate-in zoom-in-95 duration-300">
                   <div className="text-center mb-6">
@@ -255,10 +272,15 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {/* Dynamic Error Message Display */}
+              {/* Dynamic Messaging */}
               {errorMessage && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
                   <p className="text-sm text-red-500 dark:text-red-400 text-center font-medium">{errorMessage}</p>
+                </div>
+              )}
+              {successMessage && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                  <p className="text-sm text-emerald-600 dark:text-emerald-400 text-center font-medium">{successMessage}</p>
                 </div>
               )}
 
@@ -278,16 +300,27 @@ export default function LoginPage() {
                   )}
                 </button>
 
-                {/* Cancel 2FA Button */}
                 {view === '2fa' && (
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => { setView("login"); setTwoFactorCode(""); setErrorMessage(""); }}
-                    className="w-full mt-4 flex items-center justify-center text-sm font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-                  >
-                    Cancel & Return to Login
-                  </button>
+                  <div className="flex flex-col gap-2 mt-4">
+                    <button
+                      type="button"
+                      disabled={isResending || resendCooldown > 0}
+                      onClick={handleResendCode}
+                      className="w-full flex items-center justify-center gap-2 text-sm font-bold text-[var(--color-brand-deep)] hover:text-[var(--color-brand-light)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
+                    </button>
+                    
+                    <button
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => { setView("login"); setTwoFactorCode(""); setErrorMessage(""); setSuccessMessage(""); }}
+                      className="w-full flex items-center justify-center text-sm font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors py-2"
+                    >
+                      Cancel & Return to Login
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -301,7 +334,6 @@ export default function LoginPage() {
             </div>
           </>
         ) : (
-          /* Success State for Token Redemption */
           <div className="text-center py-6 animate-in zoom-in-95 duration-500">
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-6">
               <CheckCircle2 className="w-8 h-8" />
