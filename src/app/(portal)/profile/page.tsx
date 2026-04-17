@@ -55,7 +55,6 @@ export default function ProfilePage() {
     confirmPassword: ""
   });
 
-  // NEW: Password Visibility State
   const [showPasswords, setShowPasswords] = useState({
     current: false,
     new: false,
@@ -93,35 +92,21 @@ export default function ProfilePage() {
     setToggles(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // NEW: Instant Auto-Save for the 2FA Toggle
   const handle2FAToggle = async () => {
     const newValue = !toggles.twoFactorEnabled;
     setToggles(prev => ({ ...prev, twoFactorEnabled: newValue }));
 
-    // Send the update to the backend silently in the background
     const result = await updateProfile({
       userId,
       ...profileData,
       ...toggles,
-      twoFactorEnabled: newValue // Overwrite with the immediate new state
+      twoFactorEnabled: newValue 
     });
 
     if (!result.success) {
-      // Revert the toggle and show an error if the database failed
       setToggles(prev => ({ ...prev, twoFactorEnabled: !newValue }));
       showAlert("Error", "Failed to update 2FA settings. Please check your connection.");
     }
-  };
-
-  const handleSendTestEmail = async () => {
-    setIsSendingEmail(true);
-    const result = await sendWeeklySummary(userId);
-    if (result.success) {
-      showAlert("Email Sent", "Your weekly summary is on its way to your inbox!", "success");
-    } else {
-      showAlert("Error", result.error || "Failed to send email.");
-    }
-    setIsSendingEmail(false);
   };
 
   const showAlert = (title: string, message: string, type: 'error' | 'success' = 'error') => {
@@ -172,11 +157,22 @@ export default function ProfilePage() {
     if (result.success) {
       showAlert("Success", "Password securely updated.", "success");
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      setShowPasswords({ current: false, new: false, confirm: false }); // Reset visibility
+      setShowPasswords({ current: false, new: false, confirm: false });
     } else {
       showAlert("Action Failed", result.error || "Incorrect current password.");
     }
     setIsSubmitting(false);
+  };
+
+  const handleSendTestEmail = async () => {
+    setIsSendingEmail(true);
+    const result = await sendWeeklySummary(userId);
+    if (result.success) {
+      showAlert("Email Sent", "Your weekly summary is on its way to your inbox!", "success");
+    } else {
+      showAlert("Error", result.error || "Failed to send email.");
+    }
+    setIsSendingEmail(false);
   };
 
   const handleDeleteAccount = () => {
@@ -190,7 +186,7 @@ export default function ProfilePage() {
       onConfirm: async () => {
         const result = await deleteAccount(userId);
         if (result.success) {
-          signOut({ callbackUrl: '/login' }); // Boot them to login page
+          signOut({ callbackUrl: '/login' });
         } else {
           showAlert("Error", "Could not delete account. Please contact support.");
         }
@@ -199,7 +195,6 @@ export default function ProfilePage() {
     setIsConfirmModalOpen(true);
   };
 
-  // Custom Toggle Component
   const Switch = ({ checked, onChange }: { checked: boolean, onChange: () => void }) => (
     <div 
       onClick={onChange}
@@ -218,7 +213,6 @@ export default function ProfilePage() {
     );
   }
 
-  // Extract initials for the Avatar
   const getInitials = (name: string) => {
     if (!name) return "KA";
     const parts = name.split(" ");
@@ -235,8 +229,8 @@ export default function ProfilePage() {
         <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">Manage your account details and security preferences.</p>
       </div>
 
-      {/* INNER TABS */}
-      <div className="flex overflow-x-auto hide-scrollbar bg-slate-200/50 dark:bg-white/5 p-1.5 rounded-xl w-max shadow-inner border border-black/5 dark:border-white/5">
+      {/* INNER TABS - Fixed mobile overflow issue */}
+      <div className="flex overflow-x-auto hide-scrollbar bg-slate-200/50 dark:bg-white/5 p-1.5 rounded-xl w-full md:w-max shadow-inner border border-black/5 dark:border-white/5">
         {[
           { id: "personal", label: "Personal Info", icon: User },
           { id: "security", label: "Security & Access", icon: Shield },
@@ -266,7 +260,6 @@ export default function ProfilePage() {
         {activeTab === "personal" && (
           <div className="animate-in fade-in space-y-8">
             
-            {/* Avatar Section */}
             <div className="flex flex-col md:flex-row items-start md:items-center gap-6 pb-8 border-b border-slate-100 dark:border-white/5">
               <div className="relative group">
                 <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[var(--color-brand-deep)] to-[var(--color-brand-light)] p-1 shadow-lg">
@@ -284,7 +277,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Form Fields */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
                 <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Full Name</label>
@@ -347,7 +339,6 @@ export default function ProfilePage() {
         {activeTab === "security" && (
           <div className="animate-in fade-in space-y-8">
             
-            {/* 2FA Toggle */}
             <div className="flex items-center justify-between p-5 bg-[var(--color-brand-deep)]/5 border border-[var(--color-brand-deep)]/20 rounded-2xl">
               <div className="flex gap-4 items-start">
                 <div className="w-10 h-10 rounded-full bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] flex items-center justify-center shrink-0">
@@ -361,12 +352,10 @@ export default function ProfilePage() {
               <Switch checked={toggles.twoFactorEnabled} onChange={handle2FAToggle} />
             </div>
 
-            {/* Change Password */}
             <div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Change Password</h3>
               <div className="grid grid-cols-1 gap-4 max-w-lg">
                 
-                {/* Current Password Field */}
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
@@ -384,7 +373,6 @@ export default function ProfilePage() {
                   </button>
                 </div>
 
-                {/* New Password Field */}
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
@@ -402,7 +390,6 @@ export default function ProfilePage() {
                   </button>
                 </div>
 
-                {/* Confirm Password Field */}
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
@@ -480,7 +467,6 @@ export default function ProfilePage() {
                     <Switch checked={toggles.emailAlerts} onChange={() => handleToggle('emailAlerts')} />
                   </div>
                   
-                  {/* NEW: Send Test Email Button */}
                   {toggles.emailAlerts && (
                     <div className="pt-3 border-t border-slate-200 dark:border-white/10">
                       <button 
