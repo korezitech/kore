@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { 
   TrendingUp, TrendingDown, PieChart, Activity, DollarSign, 
-  Bitcoin, LineChart, Plus, X, Briefcase, RefreshCw, Trash2, 
-  Eye, EyeOff, MoreHorizontal, Edit3, AlertTriangle, CheckCircle2, Loader2
+  Bitcoin, LineChart, Plus, X, Briefcase, RefreshCw, Trash2, Eye, EyeOff, MoreHorizontal, Edit3, AlertTriangle, CheckCircle2, Loader2
 } from "lucide-react";
 
 import { getUserInvestments, createInvestment, updateInvestment, deleteInvestment, getLiveAssetPrices } from "@/actions/investmentActions";
@@ -33,18 +32,15 @@ export default function InvestmentsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Drawer States
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"add" | "edit">("add");
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  // Modal States
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
 
-  // Form States
   const [addForm, setAddForm] = useState({
     name: "",
     ticker: "",
@@ -105,7 +101,6 @@ export default function InvestmentsPage() {
       return LineChart;
   };
 
-  // --- MERGE DB DATA WITH LIVE PRICES ---
   const activeHoldings = investments.filter(inv => inv.region === portfolioView).map(inv => {
       const liveData = livePrices[inv.ticker] || { price: parseFloat(inv.avgPrice), change24h: 0 };
       return {
@@ -123,20 +118,18 @@ export default function InvestmentsPage() {
   if (portfolioView === "GBP") { currencySymbol = "£"; sectionTitle = "UK & Global Assets"; } 
   else if (portfolioView === "NGN") { currencySymbol = "₦"; sectionTitle = "Local Nigerian Assets"; }
 
-  // --- DYNAMIC CALCULATIONS ---
   const totalBalance = activeHoldings.reduce((sum, item) => sum + (item.shares * item.currentPrice), 0);
   const totalCostBasis = activeHoldings.reduce((sum, item) => sum + (item.shares * item.avgPrice), 0);
   const allTimePnL = totalBalance - totalCostBasis;
   const pnlPercentage = totalCostBasis > 0 ? (allTimePnL / totalCostBasis) * 100 : 0;
 
-  // Calculate 24h PnL strictly based on the 24h change percentage of current holdings
   const dayReturn = activeHoldings.reduce((sum, item) => {
+      if (item.change24h === 0) return sum;
       const prevPrice = item.currentPrice / (1 + (item.change24h / 100));
       return sum + ((item.currentPrice - prevPrice) * item.shares);
   }, 0);
   const dayReturnPercentage = totalBalance > 0 ? (dayReturn / (totalBalance - dayReturn)) * 100 : 0;
 
-  // Drawer Handlers
   const openAddDrawer = () => {
     setDrawerMode("add");
     setSelectedAsset(null);
@@ -217,7 +210,6 @@ export default function InvestmentsPage() {
     <>
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 relative min-h-[80vh] pb-24">
         
-        {/* HEADER & ACTIONS */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Investment Portfolio</h2>
@@ -236,7 +228,6 @@ export default function InvestmentsPage() {
           </button>
         </div>
 
-        {/* PORTFOLIO REGION TOGGLE (3-WAY) */}
         <div className="flex overflow-x-auto hide-scrollbar bg-slate-200/50 dark:bg-white/5 p-1.5 rounded-xl w-max shadow-inner border border-black/5 dark:border-white/5 max-w-full">
           <button
             onClick={() => setPortfolioView("USD")}
@@ -270,10 +261,8 @@ export default function InvestmentsPage() {
           </button>
         </div>
 
-        {/* TOP ROW: Portfolio Hero & Allocation */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           
-          {/* HERO: Total Value */}
           <div className="md:col-span-2 glass-panel p-6 md:p-8 relative overflow-hidden group">
             <div className="absolute -top-10 -right-10 p-8 opacity-5 dark:opacity-[0.03] group-hover:scale-110 transition-transform duration-700 pointer-events-none z-0">
               <TrendingUp className="w-64 h-64 text-[var(--color-brand-deep)]" />
@@ -282,7 +271,7 @@ export default function InvestmentsPage() {
             <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Balance</p>
+                  <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Market Value</p>
                   <button 
                     onClick={() => setShowAmounts(!showAmounts)} 
                     className="text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors p-1 -mt-1"
@@ -291,7 +280,7 @@ export default function InvestmentsPage() {
                     {showAmounts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <h2 className="text-4xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight">
+                <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 dark:text-white tracking-tight">
                   {showAmounts ? `${currencySymbol}${formatMoney(totalBalance)}` : "••••••"}
                 </h2>
               </div>
@@ -319,7 +308,6 @@ export default function InvestmentsPage() {
             </div>
           </div>
 
-          {/* ASSET ALLOCATION */}
           <div className="glass-panel p-6 flex flex-col justify-between">
             <div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Allocation</h3>
@@ -328,7 +316,6 @@ export default function InvestmentsPage() {
                  <div className="h-4 w-full rounded-full bg-slate-200 dark:bg-white/10 mb-6"></div>
               ) : (
                 <div className="h-4 w-full rounded-full flex overflow-hidden shadow-inner mb-6 bg-slate-200 dark:bg-white/10">
-                  {/* Dynamic calculation of allocation bars based on types */}
                   {['Crypto', 'Stock', 'ETF', 'Bond'].map((type, idx) => {
                       const typeTotal = activeHoldings.filter(h => h.type === type).reduce((sum, item) => sum + (item.shares * item.currentPrice), 0);
                       if (typeTotal === 0) return null;
@@ -360,14 +347,12 @@ export default function InvestmentsPage() {
                })}
             </div>
           </div>
-
         </div>
 
-        {/* BOTTOM ROW: Holdings Ledger */}
-        <div className="glass-panel overflow-hidden relative">
-          <div className="p-6 border-b border-slate-100 dark:border-white/5 flex items-center justify-between bg-slate-50/50 dark:bg-white/5">
+        {/* BOTTOM ROW: Holdings Ledger - Removed overflow-hidden to fix dropdown clipping */}
+        <div className="glass-panel relative pb-2">
+          <div className="p-6 border-b border-slate-100 dark:border-white/5 flex items-center justify-between bg-slate-50/50 dark:bg-white/5 rounded-t-2xl">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{sectionTitle}</h3>
-            <button className="text-sm font-semibold text-[var(--color-brand-deep)] hover:underline">View Performance</button>
           </div>
 
           {activeHoldings.length === 0 ? (
@@ -378,30 +363,37 @@ export default function InvestmentsPage() {
              </div>
           ) : (
             <>
-              <div className="hidden md:grid grid-cols-12 gap-4 p-4 border-b border-slate-100 dark:border-white/5 text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50/30 dark:bg-black/10">
-                <div className="col-span-4">Asset</div>
+              {/* DESKTOP TABLE HEADER */}
+              <div className="hidden md:grid grid-cols-12 gap-4 p-4 border-b border-slate-100 dark:border-white/5 text-[11px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50/30 dark:bg-black/10">
+                <div className="col-span-3">Asset</div>
+                <div className="col-span-2 text-right">Units / Avg Cost</div>
                 <div className="col-span-2 text-right">Live Price</div>
-                <div className="col-span-2 text-right">Holdings</div>
-                <div className="col-span-2 text-right">Total Value</div>
-                <div className="col-span-2 text-right">24h Change</div>
+                <div className="col-span-2 text-right">Market Value</div>
+                <div className="col-span-2 text-right">Returns (All-Time)</div>
+                <div className="col-span-1 text-center">Action</div>
               </div>
 
               <div className="divide-y divide-slate-100 dark:divide-white/5">
                 {activeHoldings.map((asset) => {
                   const AssetIcon = getAssetIcon(asset.type);
+                  
+                  // Asset Math Engine
+                  const assetTotalCost = asset.shares * asset.avgPrice;
+                  const assetTotalValue = asset.shares * asset.currentPrice;
+                  const assetPnL = assetTotalValue - assetTotalCost;
+                  const assetPnLPercent = assetTotalCost > 0 ? (assetPnL / assetTotalCost) * 100 : 0;
+                  const isPnLPositive = assetPnL >= 0;
+
                   return (
-                  <div 
-                    key={asset.id} 
-                    className="flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-4 p-4 md:items-center hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group relative"
-                  >
+                  <div key={asset.id} className="p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group relative last:rounded-b-2xl">
                     
-                    {/* DROPDOWN MENU */}
+                    {/* MOBILE ACTION BUTTON */}
                     <div className="absolute top-4 right-4 md:hidden z-20">
                       <button 
                         onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === asset.id ? null : asset.id); }}
-                        className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer"
+                        className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer border border-slate-200 dark:border-white/10 shadow-sm bg-white dark:bg-slate-800"
                       >
-                        <MoreHorizontal className="w-5 h-5" />
+                        <MoreHorizontal className="w-4 h-4" />
                       </button>
                       
                       {openMenuId === asset.id && (
@@ -419,50 +411,74 @@ export default function InvestmentsPage() {
                       )}
                     </div>
 
-                    <div className="col-span-4 flex items-center justify-between md:justify-start gap-4 pr-10 md:pr-0">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-4 md:items-center">
+                      
+                      <div className="col-span-3 flex items-center gap-3 pr-12 md:pr-0">
                         <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0 group-hover:bg-slate-200 dark:group-hover:bg-white/20 transition-colors">
                           <AssetIcon className="w-5 h-5" />
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight group-hover:text-[var(--color-brand-deep)] transition-colors">{asset.name}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{asset.ticker} • {asset.type}</p>
+                        <div className="overflow-hidden">
+                          <p className="text-sm font-bold text-slate-900 dark:text-white leading-tight truncate group-hover:text-[var(--color-brand-deep)] transition-colors">{asset.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{asset.ticker} • {asset.type}</p>
                         </div>
                       </div>
-                      <div className="md:hidden text-right">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          {showAmounts ? `${currencySymbol}${formatMoney(asset.shares * asset.currentPrice)}` : "••••••"}
-                        </p>
-                        <p className={`text-xs font-bold mt-0.5 ${asset.isPositive ? "text-emerald-500" : "text-rose-500"}`}>
-                          {asset.isPositive ? "+" : ""}{asset.change24h}%
+
+                      {/* REDESIGNED MOBILE DATA CARD */}
+                      <div className="md:hidden flex flex-col gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
+                        <div className="flex justify-between items-center bg-slate-50/50 dark:bg-white/5 p-2 rounded-lg">
+                           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Units / Avg Cost</span>
+                           <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{asset.shares} @ {currencySymbol}{formatMoney(asset.avgPrice)}</span>
+                        </div>
+                        <div className="flex justify-between items-center px-2 py-1">
+                           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Live Price</span>
+                           <span className="text-sm font-bold text-slate-900 dark:text-white">{currencySymbol}{formatMoney(asset.currentPrice)}</span>
+                        </div>
+                        <div className="flex justify-between items-center px-2 py-1 border-t border-dashed border-slate-200 dark:border-white/10 pt-2">
+                           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Market Value</span>
+                           <span className="text-base font-bold text-slate-900 dark:text-white">{currencySymbol}{formatMoney(assetTotalValue)}</span>
+                        </div>
+                        <div className="flex justify-between items-center px-2 py-1">
+                           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">All-Time Returns</span>
+                           <span className={`text-sm font-bold flex items-center gap-1 ${isPnLPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                             {isPnLPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                             {isPnLPositive ? "+" : ""}{currencySymbol}{formatMoney(assetPnL)} ({assetPnLPercent.toFixed(2)}%)
+                           </span>
+                        </div>
+                      </div>
+
+                      {/* DESKTOP COLUMNS */}
+                      <div className="hidden md:block col-span-2 text-right">
+                        <p className="font-bold text-slate-900 dark:text-white">{showAmounts ? asset.shares : "••••••"}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">@ {currencySymbol}{formatMoney(asset.avgPrice)} avg</p>
+                      </div>
+                      
+                      <div className="hidden md:block col-span-2 text-right">
+                        <p className="font-bold text-slate-700 dark:text-slate-300">{showAmounts ? `${currencySymbol}${formatMoney(asset.currentPrice)}` : "••••••"}</p>
+                        {asset.change24h !== 0 && (
+                          <p className={`text-[10px] font-bold mt-0.5 ${asset.change24h > 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                            24h: {asset.change24h > 0 ? "+" : ""}{asset.change24h}%
+                          </p>
+                        )}
+                      </div>
+                      
+                      <div className="hidden md:block col-span-2 text-right">
+                        <p className="text-base font-bold text-slate-900 dark:text-white">
+                          {showAmounts ? `${currencySymbol}${formatMoney(assetTotalValue)}` : "••••••"}
                         </p>
                       </div>
-                    </div>
-
-                    <div className="hidden md:block col-span-2 text-right font-medium text-slate-700 dark:text-slate-300">
-                      {showAmounts ? `${currencySymbol}${formatMoney(asset.currentPrice)}` : "••••••"}
-                    </div>
-                    <div className="hidden md:block col-span-2 text-right">
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {showAmounts ? asset.shares : "••••••"}
-                      </span>
-                    </div>
-                    <div className="hidden md:block col-span-2 text-right font-bold text-slate-900 dark:text-white">
-                      {showAmounts ? `${currencySymbol}${formatMoney(asset.shares * asset.currentPrice)}` : "••••••"}
-                    </div>
-                    
-                    {/* Desktop Actions and Change */}
-                    <div className="hidden md:flex col-span-2 justify-end items-center gap-3">
-                      <span className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold ${
-                        asset.isPositive 
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" 
-                          : "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400"
-                      }`}>
-                        {asset.isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        {Math.abs(asset.change24h)}%
-                      </span>
                       
-                      <div className="relative">
+                      <div className="hidden md:flex col-span-2 justify-end">
+                        <div className={`text-right ${isPnLPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                           <p className="font-bold text-sm">
+                             {isPnLPositive ? "+" : ""}{currencySymbol}{formatMoney(assetPnL)}
+                           </p>
+                           <p className="text-xs font-semibold opacity-80">
+                             {isPnLPositive ? "+" : ""}{assetPnLPercent.toFixed(2)}%
+                           </p>
+                        </div>
+                      </div>
+
+                      <div className="hidden md:flex col-span-1 justify-center relative">
                         <button 
                           onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === asset.id ? null : asset.id); }}
                           className="p-1.5 rounded-md text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-[var(--color-brand-deep)]/10 transition-all cursor-pointer"
@@ -473,17 +489,18 @@ export default function InvestmentsPage() {
                         {openMenuId === asset.id && (
                           <>
                             <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
-                            <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
+                            <div className="absolute top-full right-0 mt-1 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
                               <button onClick={() => { openEditDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                                <Edit3 className="w-4 h-4 text-slate-400" /> Edit Asset
+                                <Edit3 className="w-4 h-4 text-slate-400" /> Edit
                               </button>
                               <button onClick={() => { setSelectedAsset(asset); handleDeleteAsset(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
-                                <Trash2 className="w-4 h-4" /> Delete Asset
+                                <Trash2 className="w-4 h-4" /> Delete
                               </button>
                             </div>
                           </>
                         )}
                       </div>
+
                     </div>
                   </div>
                 )})}
@@ -531,7 +548,7 @@ export default function InvestmentsPage() {
                 type="text" 
                 value={addForm.name}
                 onChange={(e) => setAddForm({...addForm, name: e.target.value})}
-                placeholder="e.g. Apple Inc., Bitcoin" 
+                placeholder="e.g. Access Holdings, Bitcoin" 
                 className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
               />
             </div>
@@ -542,7 +559,7 @@ export default function InvestmentsPage() {
                 type="text"
                 value={addForm.ticker}
                 onChange={(e) => setAddForm({...addForm, ticker: e.target.value})} 
-                placeholder="e.g. AAPL, BTC, MTNN" 
+                placeholder="e.g. ACCESSCORP, BTC, AAPL" 
                 className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 uppercase" 
               />
               <p className="text-xs text-slate-500 mt-2">Required for live price tracking.</p>
@@ -578,7 +595,7 @@ export default function InvestmentsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Total Quantity</label>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Total Units / Shares</label>
                 <input 
                   type="number" 
                   value={addForm.shares}
@@ -589,7 +606,7 @@ export default function InvestmentsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Avg Buy Price</label>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Avg Cost (Per Unit)</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
                       {addForm.region === 'USD' ? '$' : addForm.region === 'GBP' ? '£' : '₦'}
@@ -607,7 +624,7 @@ export default function InvestmentsPage() {
             
             {drawerMode === "edit" && (
                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 bg-slate-50 dark:bg-white/5 p-3 rounded-lg border border-slate-200 dark:border-white/10">
-                 Updating this will recalculate your All-Time P&L for this asset. Current live price is fetched automatically.
+                 Updating this will recalculate your All-Time P&L for this asset. Current live price is fetched automatically based on the Ticker.
                </p>
             )}
           </div>
