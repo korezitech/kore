@@ -25,6 +25,7 @@ export default function InvestmentsPage() {
 
   const [showAmounts, setShowAmounts] = useState(true);
   const [portfolioView, setPortfolioView] = useState<"USD" | "GBP" | "NGN">("USD");
+  const [visibleCount, setVisibleCount] = useState(10); // NEW: Pagination state
   
   const [investments, setInvestments] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, { price: number, change24h: number }>>({});
@@ -66,6 +67,11 @@ export default function InvestmentsPage() {
       setIsFetching(false);
     }
   }, [userId, status]);
+
+  // NEW: Reset pagination to 10 whenever you switch between USD, GBP, or NGN tabs
+  useEffect(() => {
+    setVisibleCount(10);
+  }, [portfolioView]);
 
   const loadData = async () => {
     setIsFetching(true);
@@ -110,7 +116,10 @@ export default function InvestmentsPage() {
       return LineChart;
   };
 
-  const activeHoldings = investments.filter(inv => inv.region === portfolioView).map(inv => {
+  // UPDATED: Now sorts alphabetically by Name
+  const activeHoldings = investments
+    .filter(inv => inv.region === portfolioView)
+    .map(inv => {
       const liveData = livePrices[inv.ticker] || { price: parseFloat(inv.avgPrice), change24h: 0 };
       return {
           ...inv,
@@ -120,7 +129,11 @@ export default function InvestmentsPage() {
           change24h: liveData.change24h,
           isPositive: liveData.change24h >= 0
       };
-  });
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // NEW: Slice the array based on visibleCount for the table rendering
+  const displayedHoldings = activeHoldings.slice(0, visibleCount);
 
   let currencySymbol = "$";
   let sectionTitle = "US & Global Assets";
@@ -416,7 +429,7 @@ export default function InvestmentsPage() {
               </div>
 
               <div className="divide-y divide-slate-100 dark:divide-white/5">
-                {activeHoldings.map((asset) => {
+                {displayedHoldings.map((asset) => {
                   const AssetIcon = getAssetIcon(asset.type);
                   
                   // Asset Math Engine
@@ -553,6 +566,18 @@ export default function InvestmentsPage() {
                   </div>
                 )})}
               </div>
+
+              {/* NEW: Load More Button */}
+              {visibleCount < activeHoldings.length && (
+                <div className="p-4 border-t border-slate-100 dark:border-white/5 flex justify-center">
+                  <button 
+                    onClick={() => setVisibleCount(prev => prev + 10)}
+                    className="px-6 py-2.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors"
+                  >
+                    Load More
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
