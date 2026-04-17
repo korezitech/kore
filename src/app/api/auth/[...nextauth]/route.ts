@@ -7,7 +7,8 @@ const handler = NextAuth({
       name: "Credentials",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
+        twoFactorCode: { label: "2FA Code", type: "text" } // <-- ADDED THIS SO TYPESCRIPT KNOWS IT EXISTS
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -18,7 +19,8 @@ const handler = NextAuth({
             method: 'POST',
             body: JSON.stringify({
               email: credentials.email,
-              password: credentials.password
+              password: credentials.password,
+              twoFactorCode: credentials.twoFactorCode // <-- NOW SAFELY PASSED
             }),
             headers: { 
                 "Content-Type": "application/json",
@@ -27,6 +29,11 @@ const handler = NextAuth({
           });
 
           const data = await res.json();
+
+          // Catch the 2FA flag and throw it back to the frontend safely
+          if (data.error === "2FA_REQUIRED") {
+              throw new Error("2FA_REQUIRED");
+          }
 
           // If the backend says Success, return the user data to create the session
           if (res.ok && data.user) {
