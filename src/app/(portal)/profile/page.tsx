@@ -1,27 +1,205 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSession, signOut } from "next-auth/react";
 import { 
   User, Shield, Bell, Settings, Camera, Mail, 
-  Smartphone, Lock, LogOut, Laptop, CheckCircle2, AlertTriangle 
+  Smartphone, Lock, AlertTriangle, CheckCircle2, Loader2, Eye, EyeOff 
 } from "lucide-react";
 
-export default function ProfilePage() {
-  const [activeTab, setActiveTab] = useState<"personal" | "security" | "preferences">("personal");
+import { getProfile, updateProfile, updatePassword, deleteAccount, sendWeeklySummary } from "@/actions/profileActions";
 
-  // Mock State for Toggles
-  const [toggles, setToggles] = useState({
-    twoFactor: true,
-    emailAlerts: true,
-    marketing: false,
-    pushNotifications: true
+type ConfirmConfig = {
+  title: string;
+  message: string;
+  actionText: string;
+  actionColor: string;
+  iconColor: string;
+  onConfirm: () => Promise<void> | void;
+  isAlertOnly?: boolean;
+};
+
+export default function ProfilePage() {
+  const { data: session, status } = useSession();
+  const userId = (session?.user as any)?.id;
+  const userEmail = (session?.user as any)?.email;
+
+  const [activeTab, setActiveTab] = useState<"personal" | "security" | "preferences">("personal");
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  // Modals
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  // State
+  const [profileData, setProfileData] = useState({
+    name: "",
+    phone: "",
+    baseCurrency: "NGN"
   });
+
+  const [toggles, setToggles] = useState({
+    twoFactorEnabled: false,
+    emailAlerts: true,
+    pushNotifications: true,
+    marketingAlerts: false
+  });
+
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+
+  // NEW: Password Visibility State
+  const [showPasswords, setShowPasswords] = useState({
+    current: false,
+    new: false,
+    confirm: false
+  });
+
+  useEffect(() => {
+    if (userId) {
+      fetchUserData();
+    } else if (status === "unauthenticated") {
+      setIsLoading(false);
+    }
+  }, [userId, status]);
+
+  const fetchUserData = async () => {
+    setIsLoading(true);
+    const data = await getProfile(userId);
+    if (data) {
+      setProfileData({
+        name: data.name || "",
+        phone: data.phone || "",
+        baseCurrency: data.baseCurrency || "NGN"
+      });
+      setToggles({
+        twoFactorEnabled: data.twoFactorEnabled || false,
+        emailAlerts: data.emailAlerts || false,
+        pushNotifications: data.pushNotifications || false,
+        marketingAlerts: data.marketingAlerts || false
+      });
+    }
+    setIsLoading(false);
+  };
 
   const handleToggle = (key: keyof typeof toggles) => {
     setToggles(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Custom Toggle Component for reuse
+  // NEW: Instant Auto-Save for the 2FA Toggle
+  const handle2FAToggle = async () => {
+    const newValue = !toggles.twoFactorEnabled;
+    setToggles(prev => ({ ...prev, twoFactorEnabled: newValue }));
+
+    // Send the update to the backend silently in the background
+    const result = await updateProfile({
+      userId,
+      ...profileData,
+      ...toggles,
+      twoFactorEnabled: newValue // Overwrite with the immediate new state
+    });
+
+    if (!result.success) {
+      // Revert the toggle and show an error if the database failed
+      setToggles(prev => ({ ...prev, twoFactorEnabled: !newValue }));
+      showAlert("Error", "Failed to update 2FA settings. Please check your connection.");
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    setIsSendingEmail(true);
+    const result = await sendWeeklySummary(userId);
+    if (result.success) {
+      showAlert("Email Sent", "Your weekly summary is on its way to your inbox!", "success");
+    } else {
+      showAlert("Error", result.error || "Failed to send email.");
+    }
+    setIsSendingEmail(false);
+  };
+
+  const showAlert = (title: string, message: string, type: 'error' | 'success' = 'error') => {
+    setConfirmConfig({
+      title, message,
+      actionText: "Got it",
+      actionColor: type === 'error' ? "bg-rose-600 hover:bg-rose-700" : "bg-emerald-600 hover:bg-emerald-700",
+      iconColor: type === 'error' ? "text-rose-600 bg-rose-50 dark:bg-rose-500/10" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10",
+      isAlertOnly: true,
+      onConfirm: () => { setIsConfirmModalOpen(false); }
+    });
+    setIsConfirmModalOpen(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileData.name) return showAlert("Missing Information", "Full name is required.");
+    
+    setIsSubmitting(true);
+    const result = await updateProfile({
+      userId,
+      ...profileData,
+      ...toggles
+    });
+
+    if (result.success) {
+      showAlert("Success", "Your profile preferences have been updated.", "success");
+    } else {
+      showAlert("Error", result.error || "Failed to update profile.");
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!passwordForm.currentPassword || !passwordForm.newPassword) {
+      return showAlert("Missing Information", "Please fill in all password fields.");
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      return showAlert("Mismatch", "New passwords do not match.");
+    }
+
+    setIsSubmitting(true);
+    const result = await updatePassword({
+      userId,
+      currentPassword: passwordForm.currentPassword,
+      newPassword: passwordForm.newPassword
+    });
+
+    if (result.success) {
+      showAlert("Success", "Password securely updated.", "success");
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setShowPasswords({ current: false, new: false, confirm: false }); // Reset visibility
+    } else {
+      showAlert("Action Failed", result.error || "Incorrect current password.");
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleDeleteAccount = () => {
+    setConfirmConfig({
+      title: "Delete Account",
+      message: "Are you absolutely sure? This will permanently wipe your user data, investments, accounts, and transactions. This cannot be undone.",
+      actionText: "Yes, Delete Everything",
+      actionColor: "bg-rose-600 hover:bg-rose-700",
+      iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
+      isAlertOnly: false,
+      onConfirm: async () => {
+        const result = await deleteAccount(userId);
+        if (result.success) {
+          signOut({ callbackUrl: '/login' }); // Boot them to login page
+        } else {
+          showAlert("Error", "Could not delete account. Please contact support.");
+        }
+      }
+    });
+    setIsConfirmModalOpen(true);
+  };
+
+  // Custom Toggle Component
   const Switch = ({ checked, onChange }: { checked: boolean, onChange: () => void }) => (
     <div 
       onClick={onChange}
@@ -31,8 +209,25 @@ export default function ProfilePage() {
     </div>
   );
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500">
+        <Loader2 className="w-8 h-8 animate-spin mb-4 text-[var(--color-brand-deep)]" />
+        <p className="text-sm font-semibold">Loading profile data...</p>
+      </div>
+    );
+  }
+
+  // Extract initials for the Avatar
+  const getInitials = (name: string) => {
+    if (!name) return "KA";
+    const parts = name.split(" ");
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.substring(0, 2).toUpperCase();
+  };
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto pb-24">
       
       {/* HEADER */}
       <div>
@@ -75,55 +270,71 @@ export default function ProfilePage() {
             <div className="flex flex-col md:flex-row items-start md:items-center gap-6 pb-8 border-b border-slate-100 dark:border-white/5">
               <div className="relative group">
                 <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[var(--color-brand-deep)] to-[var(--color-brand-light)] p-1 shadow-lg">
-                  <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center text-3xl font-bold text-[var(--color-brand-deep)]">
-                    KA
+                  <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center text-3xl font-bold text-[var(--color-brand-deep)] tracking-widest">
+                    {getInitials(profileData.name)}
                   </div>
                 </div>
-                <button className="absolute bottom-0 right-0 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-full text-slate-600 dark:text-slate-300 hover:text-[var(--color-brand-deep)] shadow-sm transition-colors group-hover:scale-105">
+                <button className="absolute bottom-0 right-0 p-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-full text-slate-400 cursor-not-allowed">
                   <Camera className="w-4 h-4" />
                 </button>
               </div>
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Profile Picture</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-sm">Upload a high-resolution image to personalize your KORE dashboard. PNG or JPG under 5MB.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-sm">Custom avatar uploads are currently disabled for security. Your initials will be displayed across the app.</p>
               </div>
             </div>
 
             {/* Form Fields */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">First Name</label>
-                <div className="relative">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Full Name</label>
+                <div className="relative max-w-xl">
                   <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="text" defaultValue="Korede" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" />
+                  <input 
+                    type="text" 
+                    value={profileData.name}
+                    onChange={(e) => setProfileData({...profileData, name: e.target.value})}
+                    placeholder="e.g. Korede Ajayi" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                  />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Last Name</label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="text" defaultValue="Ajayi" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" />
-                </div>
-              </div>
+              
               <div>
                 <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Email Address</label>
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="email" defaultValue="korede@korefinance.com" disabled className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl pl-10 pr-4 py-3 text-slate-500 dark:text-slate-400 cursor-not-allowed" />
+                  <input 
+                    type="email" 
+                    value={userEmail || ""} 
+                    disabled 
+                    className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl pl-10 pr-4 py-3 text-slate-500 dark:text-slate-400 cursor-not-allowed" 
+                  />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1.5">Contact support to change your email address.</p>
+                <p className="text-[10px] text-slate-500 mt-1.5">Contact support to change your registered email address.</p>
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Phone Number</label>
                 <div className="relative">
                   <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="tel" defaultValue="+234 800 000 0000" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" />
+                  <input 
+                    type="tel" 
+                    value={profileData.phone}
+                    onChange={(e) => setProfileData({...profileData, phone: e.target.value})}
+                    placeholder="+234 800 000 0000" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                  />
                 </div>
               </div>
             </div>
 
             <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-white/5">
-              <button className="bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white px-6 py-3 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20">
+              <button 
+                onClick={handleSaveProfile}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white px-6 py-3 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70"
+              >
+                {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 Save Changes
               </button>
             </div>
@@ -147,56 +358,76 @@ export default function ProfilePage() {
                   <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-md">Secure your account with an extra layer of security using an authenticator app or email alerts.</p>
                 </div>
               </div>
-              <Switch checked={toggles.twoFactor} onChange={() => handleToggle('twoFactor')} />
+              <Switch checked={toggles.twoFactorEnabled} onChange={handle2FAToggle} />
             </div>
 
             {/* Change Password */}
             <div>
               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Change Password</h3>
               <div className="grid grid-cols-1 gap-4 max-w-lg">
+                
+                {/* Current Password Field */}
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="password" placeholder="Current Password" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" />
+                  <input 
+                    type={showPasswords.current ? "text" : "password"} 
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
+                    placeholder="Current Password" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                  />
+                  <button 
+                    onClick={() => setShowPasswords({...showPasswords, current: !showPasswords.current})}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors"
+                  >
+                    {showPasswords.current ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
+
+                {/* New Password Field */}
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="password" placeholder="New Password" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" />
+                  <input 
+                    type={showPasswords.new ? "text" : "password"} 
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
+                    placeholder="New Password" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                  />
+                  <button 
+                    onClick={() => setShowPasswords({...showPasswords, new: !showPasswords.new})}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors"
+                  >
+                    {showPasswords.new ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
+
+                {/* Confirm Password Field */}
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="password" placeholder="Confirm New Password" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" />
+                  <input 
+                    type={showPasswords.confirm ? "text" : "password"} 
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
+                    placeholder="Confirm New Password" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                  />
+                  <button 
+                    onClick={() => setShowPasswords({...showPasswords, confirm: !showPasswords.confirm})}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors"
+                  >
+                    {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <button className="w-max bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 px-6 py-3 rounded-xl text-sm font-bold transition-colors mt-2">
+
+                <button 
+                  onClick={handleUpdatePassword}
+                  disabled={isSubmitting}
+                  className="w-max flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 px-6 py-3 rounded-xl text-sm font-bold transition-colors mt-2 disabled:opacity-70"
+                >
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   Update Password
                 </button>
-              </div>
-            </div>
-
-            <div className="h-px bg-slate-100 dark:bg-white/5 w-full"></div>
-
-            {/* Active Sessions */}
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Active Sessions</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 border border-slate-200 dark:border-white/10 rounded-xl bg-slate-50 dark:bg-white/5">
-                  <div className="flex items-center gap-4">
-                    <Laptop className="w-5 h-5 text-emerald-500" />
-                    <div>
-                      <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">Windows PC - Chrome <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /></p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Lagos, Nigeria • Current Session</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-4 border border-slate-200 dark:border-white/10 rounded-xl bg-transparent">
-                  <div className="flex items-center gap-4">
-                    <Smartphone className="w-5 h-5 text-slate-500" />
-                    <div>
-                      <p className="text-sm font-bold text-slate-900 dark:text-white">iPhone 14 Pro - Safari</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">London, UK • Last active: 2 days ago</p>
-                    </div>
-                  </div>
-                  <button className="text-xs font-bold text-rose-500 hover:underline">Revoke</button>
-                </div>
               </div>
             </div>
 
@@ -214,7 +445,11 @@ export default function ProfilePage() {
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 max-w-xl">This is your base currency. All overall net worth calculations and generic dashboard metrics will be converted to this currency.</p>
               
               <div className="max-w-xs">
-                <select className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none">
+                <select 
+                  value={profileData.baseCurrency}
+                  onChange={(e) => setProfileData({...profileData, baseCurrency: e.target.value})}
+                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none"
+                >
                   <option value="NGN">₦ Nigerian Naira (NGN)</option>
                   <option value="GBP">£ British Pound (GBP)</option>
                   <option value="USD">$ US Dollar (USD)</option>
@@ -236,12 +471,28 @@ export default function ProfilePage() {
                   <Switch checked={toggles.pushNotifications} onChange={() => handleToggle('pushNotifications')} />
                 </div>
                 
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-xl">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">Email Alerts & Summaries</h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Get weekly financial summaries and critical security alerts.</p>
+                <div className="flex flex-col p-4 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-xl gap-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Email Alerts & Summaries</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Get weekly financial summaries and critical security alerts.</p>
+                    </div>
+                    <Switch checked={toggles.emailAlerts} onChange={() => handleToggle('emailAlerts')} />
                   </div>
-                  <Switch checked={toggles.emailAlerts} onChange={() => handleToggle('emailAlerts')} />
+                  
+                  {/* NEW: Send Test Email Button */}
+                  {toggles.emailAlerts && (
+                    <div className="pt-3 border-t border-slate-200 dark:border-white/10">
+                      <button 
+                        onClick={handleSendTestEmail}
+                        disabled={isSendingEmail}
+                        className="flex items-center gap-2 text-sm font-bold text-[var(--color-brand-deep)] hover:text-[var(--color-brand-light)] transition-colors disabled:opacity-50"
+                      >
+                        {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                        {isSendingEmail ? "Generating Summary..." : "Send Summary Now"}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-xl">
@@ -249,10 +500,21 @@ export default function ProfilePage() {
                     <h4 className="text-sm font-bold text-slate-900 dark:text-white">Marketing & Offers</h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Receive news about new KORE features and partner offers.</p>
                   </div>
-                  <Switch checked={toggles.marketing} onChange={() => handleToggle('marketing')} />
+                  <Switch checked={toggles.marketingAlerts} onChange={() => handleToggle('marketingAlerts')} />
                 </div>
 
               </div>
+            </div>
+
+            <div className="flex justify-start pt-4 border-t border-slate-100 dark:border-white/5">
+              <button 
+                onClick={handleSaveProfile}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 px-6 py-3 rounded-xl text-sm font-bold transition-colors disabled:opacity-70"
+              >
+                {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                Save Preferences
+              </button>
             </div>
 
             <div className="h-px bg-slate-100 dark:bg-white/5 w-full"></div>
@@ -265,7 +527,10 @@ export default function ProfilePage() {
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">Delete Account</h4>
                   <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-md">Permanently delete your data and all connected financial records. This action cannot be undone.</p>
                 </div>
-                <button className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors shrink-0">
+                <button 
+                  onClick={handleDeleteAccount}
+                  className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors shrink-0"
+                >
                   Delete Account
                 </button>
               </div>
@@ -275,6 +540,57 @@ export default function ProfilePage() {
         )}
 
       </div>
+
+      {/* CONFIRMATION / ALERT MODAL */}
+      {isConfirmModalOpen && confirmConfig && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => !isConfirming && setIsConfirmModalOpen(false)} 
+          />
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
+                {confirmConfig.isAlertOnly && confirmConfig.actionColor.includes("emerald") ? (
+                  <CheckCircle2 className="w-7 h-7" />
+                ) : (
+                  <AlertTriangle className="w-7 h-7" />
+                )}
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                {confirmConfig.title}
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+                {confirmConfig.message}
+              </p>
+              <div className="flex gap-3 w-full">
+                {!confirmConfig.isAlertOnly && (
+                  <button
+                    onClick={() => setIsConfirmModalOpen(false)}
+                    disabled={isConfirming}
+                    className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={async () => {
+                    setIsConfirming(true);
+                    await confirmConfig.onConfirm();
+                    setIsConfirming(false);
+                    if (confirmConfig.isAlertOnly) setIsConfirmModalOpen(false);
+                  }}
+                  disabled={isConfirming}
+                  className={`flex-1 py-3 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${confirmConfig.actionColor}`}
+                >
+                  {isConfirming && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isConfirming ? "Processing..." : confirmConfig.actionText}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
