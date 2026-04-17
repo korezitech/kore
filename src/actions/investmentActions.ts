@@ -31,6 +31,20 @@ export async function createInvestment(invData: any) {
     }
 }
 
+export async function logInvestmentTrade(tradeData: any) {
+    try {
+        const response = await fetch(`${apiUrl}?action=log_investment_trade`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey || '' },
+            body: JSON.stringify(tradeData)
+        });
+        const data = await response.json();
+        return { success: !data.error, error: data.error };
+    } catch (error) {
+        return { success: false, error: "Network error" };
+    }
+}
+
 export async function updateInvestment(invData: any) {
     try {
         const response = await fetch(`${apiUrl}?action=update_investment`, {

@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { 
   TrendingUp, TrendingDown, PieChart, Activity, DollarSign, 
-  Bitcoin, LineChart, Plus, X, Briefcase, RefreshCw, Trash2, Eye, EyeOff, MoreHorizontal, Edit3, AlertTriangle, CheckCircle2, Loader2
+  Bitcoin, LineChart, Plus, X, Briefcase, RefreshCw, Trash2, Eye, EyeOff, MoreHorizontal, Edit3, AlertTriangle, CheckCircle2, Loader2, ArrowRightLeft
 } from "lucide-react";
 
-import { getUserInvestments, createInvestment, updateInvestment, deleteInvestment, getLiveAssetPrices } from "@/actions/investmentActions";
+import { getUserInvestments, createInvestment, updateInvestment, deleteInvestment, getLiveAssetPrices, logInvestmentTrade } from "@/actions/investmentActions";
 
 type ConfirmConfig = {
   title: string;
@@ -33,7 +33,7 @@ export default function InvestmentsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<"add" | "edit">("add");
+  const [drawerMode, setDrawerMode] = useState<"add" | "trade" | "edit">("add");
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
@@ -41,6 +41,7 @@ export default function InvestmentsPage() {
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
 
+  // Form for asset creation and editing
   const [addForm, setAddForm] = useState({
     name: "",
     ticker: "",
@@ -48,6 +49,14 @@ export default function InvestmentsPage() {
     region: "USD",
     shares: "",
     avgPrice: ""
+  });
+
+  // Form for Logging Ledger Trades
+  const [tradeForm, setTradeForm] = useState({
+    tradeType: "buy" as "buy" | "sell",
+    units: "",
+    pricePerUnit: "",
+    brokerFees: ""
   });
 
   useEffect(() => {
@@ -151,8 +160,15 @@ export default function InvestmentsPage() {
     setIsDrawerOpen(true);
   };
 
+  const openTradeDrawer = (asset: any) => {
+    setDrawerMode("trade");
+    setSelectedAsset(asset);
+    setTradeForm({ tradeType: "buy", units: "", pricePerUnit: "", brokerFees: "" });
+    setIsDrawerOpen(true);
+  };
+
   const handleSaveAsset = async () => {
-      if (!addForm.name || !addForm.ticker || !addForm.shares || !addForm.avgPrice) {
+      if (!addForm.name || !addForm.ticker) {
           return showAlert("Missing Information", "Please fill in all required asset fields.");
       }
       setIsSubmitting(true);
@@ -168,6 +184,32 @@ export default function InvestmentsPage() {
           await loadData();
           setIsDrawerOpen(false);
           showAlert("Success", `Asset successfully ${drawerMode === 'add' ? 'logged' : 'updated'}.`, "success");
+      } else {
+          showAlert("Action Failed", result.error);
+      }
+      setIsSubmitting(false);
+  };
+
+  const handleSaveTrade = async () => {
+      if (!tradeForm.units || !tradeForm.pricePerUnit) {
+          return showAlert("Missing Information", "Please enter the units and price per unit.");
+      }
+      setIsSubmitting(true);
+
+      const result = await logInvestmentTrade({
+          investmentId: selectedAsset.id,
+          userId,
+          tradeType: tradeForm.tradeType,
+          units: tradeForm.units,
+          pricePerUnit: tradeForm.pricePerUnit,
+          brokerFees: tradeForm.brokerFees || 0,
+          tradeDate: new Date().toISOString().split('T')[0] // Sends today's date
+      });
+
+      if (result.success) {
+          await loadData();
+          setIsDrawerOpen(false);
+          showAlert("Success", "Trade logged successfully. Averages recalculated.", "success");
       } else {
           showAlert("Action Failed", result.error);
       }
@@ -349,7 +391,7 @@ export default function InvestmentsPage() {
           </div>
         </div>
 
-        {/* BOTTOM ROW: Holdings Ledger - Removed overflow-hidden to fix dropdown clipping */}
+        {/* BOTTOM ROW: Holdings Ledger */}
         <div className="glass-panel relative pb-2">
           <div className="p-6 border-b border-slate-100 dark:border-white/5 flex items-center justify-between bg-slate-50/50 dark:bg-white/5 rounded-t-2xl">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{sectionTitle}</h3>
@@ -401,7 +443,10 @@ export default function InvestmentsPage() {
                           <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
                           <div className="absolute top-full right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
                             <button onClick={() => { openEditDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                              <Edit3 className="w-4 h-4 text-slate-400" /> Edit Asset
+                              <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
+                            </button>
+                            <button onClick={() => { openTradeDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
+                              <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Log Trade
                             </button>
                             <button onClick={() => { setSelectedAsset(asset); handleDeleteAsset(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
                               <Trash2 className="w-4 h-4" /> Delete Asset
@@ -491,7 +536,10 @@ export default function InvestmentsPage() {
                             <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)}></div>
                             <div className="absolute top-full right-0 mt-1 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-xl rounded-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 py-1">
                               <button onClick={() => { openEditDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                                <Edit3 className="w-4 h-4 text-slate-400" /> Edit
+                                <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
+                              </button>
+                              <button onClick={() => { openTradeDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
+                                <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Log Trade
                               </button>
                               <button onClick={() => { setSelectedAsset(asset); handleDeleteAsset(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
                                 <Trash2 className="w-4 h-4" /> Delete
@@ -512,7 +560,7 @@ export default function InvestmentsPage() {
       </div>
 
       {/* ========================================= */}
-      {/* LOG / EDIT HOLDING DRAWER                   */}
+      {/* LOG HOLDING / LOG TRADE DRAWER            */}
       {/* ========================================= */}
       
       {isDrawerOpen && (
@@ -530,9 +578,11 @@ export default function InvestmentsPage() {
         <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
           <div>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-              {drawerMode === "add" ? "Log Asset Holding" : "Edit Asset Details"}
+              {drawerMode === "add" ? "Log New Asset" : drawerMode === "edit" ? "Edit Asset Details" : `Log Trade: ${selectedAsset?.ticker}`}
             </h3>
-            <p className="text-xs text-slate-500">Update your external investments manually.</p>
+            <p className="text-xs text-slate-500">
+              {drawerMode === "add" || drawerMode === "edit" ? "Update your external investments manually." : "Automate your cost basis and ledger."}
+            </p>
           </div>
           <button onClick={() => setIsDrawerOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
             <X className="w-5 h-5" />
@@ -540,94 +590,177 @@ export default function InvestmentsPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="space-y-6">
-            
-            <div>
-              <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Asset Name</label>
-              <input 
-                type="text" 
-                value={addForm.name}
-                onChange={(e) => setAddForm({...addForm, name: e.target.value})}
-                placeholder="e.g. Access Holdings, Bitcoin" 
-                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Ticker / Symbol</label>
-              <input 
-                type="text"
-                value={addForm.ticker}
-                onChange={(e) => setAddForm({...addForm, ticker: e.target.value})} 
-                placeholder="e.g. ACCESSCORP, BTC, AAPL" 
-                className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 uppercase" 
-              />
-              <p className="text-xs text-slate-500 mt-2">Required for live price tracking.</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+          
+          {/* ----- ADD / EDIT ASSET FORM ----- */}
+          {(drawerMode === "add" || drawerMode === "edit") && (
+            <div className="space-y-6">
               <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Asset Type</label>
-                <select 
-                  value={addForm.type}
-                  onChange={(e) => setAddForm({...addForm, type: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none font-medium"
-                >
-                  <option value="Stock">Stock</option>
-                  <option value="Crypto">Crypto</option>
-                  <option value="ETF">ETF</option>
-                  <option value="Bond">Bond</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Region</label>
-                <select 
-                  value={addForm.region}
-                  onChange={(e) => setAddForm({...addForm, region: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none font-medium"
-                >
-                  <option value="USD">Global (USD)</option>
-                  <option value="GBP">Global (GBP)</option>
-                  <option value="NGN">Local (NGN)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Total Units / Shares</label>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Asset Name</label>
                 <input 
-                  type="number" 
-                  value={addForm.shares}
-                  onChange={(e) => setAddForm({...addForm, shares: e.target.value})}
-                  placeholder="0.00" 
+                  type="text" 
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({...addForm, name: e.target.value})}
+                  placeholder="e.g. Access Holdings, Bitcoin" 
                   className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Avg Cost (Per Unit)</label>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Ticker / Symbol</label>
+                <input 
+                  type="text"
+                  value={addForm.ticker}
+                  onChange={(e) => setAddForm({...addForm, ticker: e.target.value})} 
+                  placeholder="e.g. ACCESSCORP, BTC, AAPL" 
+                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 uppercase" 
+                />
+                <p className="text-xs text-slate-500 mt-2">Required for live price tracking.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Asset Type</label>
+                  <select 
+                    value={addForm.type}
+                    onChange={(e) => setAddForm({...addForm, type: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none font-medium"
+                  >
+                    <option value="Stock">Stock</option>
+                    <option value="Crypto">Crypto</option>
+                    <option value="ETF">ETF</option>
+                    <option value="Bond">Bond</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Region</label>
+                  <select 
+                    value={addForm.region}
+                    onChange={(e) => setAddForm({...addForm, region: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none font-medium"
+                  >
+                    <option value="USD">Global (USD)</option>
+                    <option value="GBP">Global (GBP)</option>
+                    <option value="NGN">Local (NGN)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Initial Units</label>
+                  <input 
+                    type="number" 
+                    value={addForm.shares}
+                    onChange={(e) => setAddForm({...addForm, shares: e.target.value})}
+                    disabled={drawerMode === "edit"}
+                    placeholder="0.00" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" 
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Initial Cost</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
+                        {addForm.region === 'USD' ? '$' : addForm.region === 'GBP' ? '£' : '₦'}
+                    </span>
+                    <input 
+                      type="number"
+                      value={addForm.avgPrice}
+                      onChange={(e) => setAddForm({...addForm, avgPrice: e.target.value})} 
+                      disabled={drawerMode === "edit"}
+                      placeholder="0.00" 
+                      className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-9 pr-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" 
+                    />
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 bg-slate-50 dark:bg-white/5 p-3 rounded-lg border border-slate-200 dark:border-white/10">
+                {drawerMode === "edit" ? "To modify your units or average cost, please use the Log Trade feature." : "You can add future buys/sells to this asset automatically using the Log Trade feature."}
+              </p>
+            </div>
+          )}
+
+          {/* ----- LOG TRADE FORM ----- */}
+          {drawerMode === "trade" && (
+            <div className="space-y-6">
+              
+              {/* Buy / Sell Toggle */}
+              <div className="flex bg-slate-100 dark:bg-white/5 p-1 rounded-xl">
+                <button
+                  onClick={() => setTradeForm({...tradeForm, tradeType: "buy"})}
+                  className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                    tradeForm.tradeType === "buy" 
+                      ? "bg-white dark:bg-slate-800 text-emerald-600 shadow-sm" 
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Buy
+                </button>
+                <button
+                  onClick={() => setTradeForm({...tradeForm, tradeType: "sell"})}
+                  className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                    tradeForm.tradeType === "sell" 
+                      ? "bg-white dark:bg-slate-800 text-rose-600 shadow-sm" 
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Sell
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Units Traded</label>
+                <input 
+                  type="number" 
+                  value={tradeForm.units}
+                  onChange={(e) => setTradeForm({...tradeForm, units: e.target.value})}
+                  placeholder="e.g. 500" 
+                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Price Per Unit</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
-                      {addForm.region === 'USD' ? '$' : addForm.region === 'GBP' ? '£' : '₦'}
+                      {selectedAsset?.region === 'USD' ? '$' : selectedAsset?.region === 'GBP' ? '£' : '₦'}
                   </span>
                   <input 
                     type="number"
-                    value={addForm.avgPrice}
-                    onChange={(e) => setAddForm({...addForm, avgPrice: e.target.value})} 
+                    value={tradeForm.pricePerUnit}
+                    onChange={(e) => setTradeForm({...tradeForm, pricePerUnit: e.target.value})} 
                     placeholder="0.00" 
                     className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-9 pr-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Broker Fees / Taxes (Optional)</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
+                      {selectedAsset?.region === 'USD' ? '$' : selectedAsset?.region === 'GBP' ? '£' : '₦'}
+                  </span>
+                  <input 
+                    type="number"
+                    value={tradeForm.brokerFees}
+                    onChange={(e) => setTradeForm({...tradeForm, brokerFees: e.target.value})} 
+                    placeholder="0.00" 
+                    className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-9 pr-4 py-3 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl">
+                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">
+                  Total Trade Value: {selectedAsset?.region === 'USD' ? '$' : selectedAsset?.region === 'GBP' ? '£' : '₦'}
+                  {((parseFloat(tradeForm.units || '0') * parseFloat(tradeForm.pricePerUnit || '0')) + parseFloat(tradeForm.brokerFees || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+
             </div>
-            
-            {drawerMode === "edit" && (
-               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 bg-slate-50 dark:bg-white/5 p-3 rounded-lg border border-slate-200 dark:border-white/10">
-                 Updating this will recalculate your All-Time P&L for this asset. Current live price is fetched automatically based on the Ticker.
-               </p>
-            )}
-          </div>
+          )}
         </div>
         
         <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 flex gap-3 items-center">
@@ -639,12 +772,12 @@ export default function InvestmentsPage() {
           </button>
           
           <button 
-            onClick={handleSaveAsset}
+            onClick={drawerMode === "trade" ? handleSaveTrade : handleSaveAsset}
             disabled={isSubmitting}
             className="flex-1 flex justify-center items-center gap-2 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white px-4 py-3.5 rounded-xl font-bold transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70"
           >
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            {drawerMode === "add" ? "Save Asset" : "Update Asset"}
+            {drawerMode === "trade" ? "Submit Trade" : drawerMode === "add" ? "Save Asset" : "Update Asset"}
           </button>
         </div>
       </div>
