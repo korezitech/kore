@@ -627,7 +627,7 @@ export default function AdminPanelPage() {
               </button>
             </div>
 
-            {/* EMAIL SHARE UI */}
+            {/* EMAIL SHARE UI UX*/}
             <div className="pt-4 mt-2 border-t border-slate-100 dark:border-white/5 space-y-3">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Send via Email</label>
               <div className="flex gap-2">
