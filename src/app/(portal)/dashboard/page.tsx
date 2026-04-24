@@ -71,7 +71,10 @@ export default function DashboardPage() {
     // 1. Convert everything to a universal base (USD) first for perfect cross-math
     let totalUSD = 0;
     accounts.forEach(acc => {
-      const balance = parseFloat(acc.balance);
+      // Intercept credit accounts and treat them as liabilities (negative balance)
+      const isLiability = acc.type.toLowerCase() === 'credit';
+      const balance = isLiability ? -Math.abs(parseFloat(acc.balance)) : parseFloat(acc.balance);
+
       if (acc.currency === 'USD') totalUSD += balance;
       if (acc.currency === 'NGN') totalUSD += (balance / liveRates.NGN);
       if (acc.currency === 'GBP') totalUSD += (balance / liveRates.GBP);
@@ -84,18 +87,22 @@ export default function DashboardPage() {
     if (currency === "₦") {
       mainValue = totalUSD * liveRates.NGN;
       const gbpEquivalent = totalUSD * liveRates.GBP;
-      subText = `≈ £${formatBalance(gbpEquivalent)} at live mid-market rate`;
+      subText = `≈ ${gbpEquivalent < 0 ? '-' : ''}£${formatBalance(Math.abs(gbpEquivalent))} at live mid-market rate`;
     } else if (currency === "£") {
       mainValue = totalUSD * liveRates.GBP;
       const ngnEquivalent = totalUSD * liveRates.NGN;
-      subText = `≈ ₦${formatBalance(ngnEquivalent)} at live mid-market rate`;
+      subText = `≈ ${ngnEquivalent < 0 ? '-' : ''}₦${formatBalance(Math.abs(ngnEquivalent))} at live mid-market rate`;
     } else if (currency === "$") {
       mainValue = totalUSD;
       const ngnEquivalent = totalUSD * liveRates.NGN;
-      subText = `≈ ₦${formatBalance(ngnEquivalent)} at live mid-market rate`;
+      subText = `≈ ${ngnEquivalent < 0 ? '-' : ''}₦${formatBalance(Math.abs(ngnEquivalent))} at live mid-market rate`;
     }
 
-    return { main: `${currency}${formatBalance(mainValue)}`, sub: subText };
+    // 3. Format the main display value cleanly (e.g., -£1,178.16 instead of £-1,178.16)
+    const isNegative = mainValue < 0;
+    const formattedMain = `${isNegative ? '-' : ''}${currency}${formatBalance(Math.abs(mainValue))}`;
+
+    return { main: formattedMain, sub: subText };
   };
 
   const netWorthData = calculateNetWorth();
