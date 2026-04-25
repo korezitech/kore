@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { 
   Search, Filter, Download, 
   Store, Wifi, Plane, Receipt, Briefcase, Coffee, ShoppingBag, X, 
-  Plus, UploadCloud, Camera, FileText, Loader2, ArrowRightLeft, Trash2, Save, AlertCircle, CheckCircle2, ChevronDown
+  Plus, UploadCloud, Camera, FileText, Loader2, ArrowRightLeft, Trash2, Save, AlertCircle, CheckCircle2, ChevronDown, Edit3
 } from "lucide-react";
 import { getUserTransactions, createTransaction, deleteTransaction, updateTransactionNotes, bulkDeleteTransactions } from "@/actions/transactionActions";
 import { getUserAccounts } from "@/actions/accountActions";
@@ -33,14 +33,12 @@ export default function TransactionsPage() {
   // Drawer States
   const [selectedTx, setSelectedTx] = useState<any | null>(null);
   const [txNotes, setTxNotes] = useState(""); 
-  
-  // Delete Configuration
   const [confirmDelete, setConfirmDelete] = useState(false); 
   const [reverseBalance, setReverseBalance] = useState(true);
   
   // Add States
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [addMode, setAddMode] = useState<"manual" | "scan">("scan"); 
+  const [addMode, setAddMode] = useState<"manual" | "scan" | "review">("scan"); 
   const [amount, setAmount] = useState("");
   const [merchant, setMerchant] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -48,9 +46,10 @@ export default function TransactionsPage() {
   const [category, setCategory] = useState("Expense");
   const [txType, setTxType] = useState<"expense" | "income">("expense");
 
-  // Scanner States
+  // --- NEW: SCANNER & BULK REVIEW STATES ---
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [scannedTransactions, setScannedTransactions] = useState<any[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
@@ -71,7 +70,7 @@ export default function TransactionsPage() {
     setTransactions(txData || []);
     setMyAccounts(accountsData || []);
     
-    if (accountsData && accountsData.length > 0) {
+    if (accountsData && accountsData.length > 0 && !selectedAccountId) {
       setSelectedAccountId(accountsData[0].id);
     }
     
@@ -151,35 +150,44 @@ export default function TransactionsPage() {
     showToast("Export successful!", "success");
   };
 
-  // --- NEW: AI FILE UPLOAD HANDLER ---
+  // --- AI MULTI-FILE UPLOAD HANDLER ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!selectedAccountId) {
+      return showToast("Please select a destination account first.", "error");
+    }
 
     setIsScanning(true);
     
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = async () => {
-      // Remove the "data:image/jpeg;base64," prefix
       const base64String = (reader.result as string).split(',')[1];
       const mimeType = file.type;
 
       const result = await extractReceiptData(base64String, mimeType);
 
-      if (result.success && result.data) {
-        setMerchant(result.data.merchant || "");
-        setAmount(result.data.amount ? String(result.data.amount) : "");
-        if (result.data.date) setDate(result.data.date);
+      if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+        // Map the results into our review state, adding a temporary ID
+        const extracted = result.data.map((tx: any) => ({
+           id: Math.random().toString(36).substring(7),
+           merchant: tx.merchant || "",
+           amount: tx.amount ? String(tx.amount) : "",
+           date: tx.date || new Date().toISOString().split('T')[0]
+        }));
         
-        showToast("Extracted! Please verify details.", "success");
-        setAddMode("manual"); // Switch over to the form automatically
+        setScannedTransactions(extracted);
+        showToast(`Extracted ${extracted.length} transactions! Please review.`, "success");
+        setAddMode("review");
+      } else if (result.success && result.data.length === 0) {
+        showToast("No transactions could be clearly read from that image.", "error");
       } else {
         showToast(result.error || "Failed to read receipt.", "error");
       }
       setIsScanning(false);
       
-      // Reset input so they can upload the same file again if needed
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     
@@ -189,6 +197,48 @@ export default function TransactionsPage() {
     };
   };
 
+  // State updaters for the Review Mode
+  const updateScannedTx = (id: string, field: string, value: string) => {
+    setScannedTransactions(prev => prev.map(tx => tx.id === id ? { ...tx, [field]: value } : tx));
+  };
+  const removeScannedTx = (id: string) => {
+    setScannedTransactions(prev => prev.filter(tx => tx.id !== id));
+  };
+
+  // --- BULK SAVE HANDLER ---
+  const handleSaveBulkTransactions = async () => {
+    if (scannedTransactions.length === 0) return setAddMode("scan");
+    if (!selectedAccountId) return showToast("Destination account missing.", "error");
+
+    setIsSubmitting(true);
+    let successCount = 0;
+
+    // Process them sequentially to ensure DB consistency
+    for (const tx of scannedTransactions) {
+      if (!tx.amount || !tx.merchant || !tx.date) continue;
+
+      const res = await createTransaction({
+        userId, 
+        accountId: selectedAccountId, 
+        title: tx.merchant, 
+        category: "Expense", // Default extracted items to expense
+        amount: parseFloat(tx.amount), 
+        type: txType, 
+        date: tx.date, 
+        status: 'completed'
+      });
+      if (res.success) successCount++;
+    }
+
+    await loadData();
+    setScannedTransactions([]);
+    setIsAddOpen(false);
+    setAddMode("scan");
+    showToast(`Successfully saved ${successCount} transactions.`, "success");
+    setIsSubmitting(false);
+  };
+
+  // Standard Manual Save
   const handleSaveTransaction = async () => {
     if (!amount || !merchant || !selectedAccountId || !date) {
       return showToast("Please fill out all required fields.", "error");
@@ -342,7 +392,7 @@ export default function TransactionsPage() {
             <Download className="w-4 h-4" /> <span className="hidden md:inline">Export</span>
           </button>
           <button 
-            onClick={() => setIsAddOpen(true)}
+            onClick={() => { setAddMode("scan"); setIsAddOpen(true); }}
             className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 hover:scale-105 active:scale-95"
           >
             <Plus className="w-4 h-4" /> Add Transaction
@@ -514,23 +564,28 @@ export default function TransactionsPage() {
           isAddOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">New Transaction</h3>
+        <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5 bg-white dark:bg-[#0B0F19] z-10">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+             {addMode === "review" ? "Review Extracted Data" : "New Transaction"}
+          </h3>
           <button onClick={() => !isSubmitting && !isScanning && setIsAddOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="flex p-1 bg-slate-100 dark:bg-black/20 rounded-xl border border-slate-200 dark:border-white/5">
-            <button onClick={() => setAddMode("scan")} disabled={isSubmitting || isScanning} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "scan" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
-              <Camera className="w-4 h-4" /> AI Smart Scan
-            </button>
-            <button onClick={() => setAddMode("manual")} disabled={isSubmitting || isScanning} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "manual" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
-              <FileText className="w-4 h-4" /> Manual Entry
-            </button>
-          </div>
+          {addMode !== "review" && (
+             <div className="flex p-1 bg-slate-100 dark:bg-black/20 rounded-xl border border-slate-200 dark:border-white/5">
+               <button onClick={() => setAddMode("scan")} disabled={isSubmitting || isScanning} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "scan" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
+                 <Camera className="w-4 h-4" /> AI Smart Scan
+               </button>
+               <button onClick={() => setAddMode("manual")} disabled={isSubmitting || isScanning} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "manual" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
+                 <FileText className="w-4 h-4" /> Manual Entry
+               </button>
+             </div>
+          )}
 
+          {/* --- SCAN MODE --- */}
           {addMode === "scan" && (
             <div className="space-y-6 animate-in fade-in">
               <div className="space-y-2">
@@ -576,6 +631,72 @@ export default function TransactionsPage() {
             </div>
           )}
 
+          {/* --- REVIEW MULTI-SCAN MODE --- */}
+          {addMode === "review" && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+               <div className="bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] p-4 rounded-xl text-sm font-medium flex items-start gap-3">
+                 <Edit3 className="w-5 h-5 shrink-0 mt-0.5" />
+                 <p>KORE Brain extracted {scannedTransactions.length} items. Please verify the details below before saving them to your ledger.</p>
+               </div>
+
+               <div className="flex p-1 bg-slate-100 dark:bg-black/20 rounded-xl border border-slate-200 dark:border-white/5 mb-2">
+                 <button onClick={() => setTxType("expense")} disabled={isSubmitting} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-bold rounded-lg transition-all ${txType === "expense" ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Money Out (Expense)</button>
+                 <button onClick={() => setTxType("income")} disabled={isSubmitting} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-bold rounded-lg transition-all ${txType === "income" ? "bg-emerald-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Money In (Income)</button>
+               </div>
+
+               <div className="space-y-4">
+                 {scannedTransactions.map((tx, idx) => (
+                    <div key={tx.id} className="p-4 border border-slate-200 dark:border-white/10 rounded-2xl bg-white dark:bg-white/5 relative group shadow-sm hover:shadow-md transition-shadow">
+                       <button 
+                         onClick={() => removeScannedTx(tx.id)}
+                         className="absolute -top-3 -right-3 bg-rose-100 dark:bg-rose-900 text-rose-500 p-1.5 rounded-full hover:bg-rose-500 hover:text-white transition-colors border border-rose-200 dark:border-rose-800 shadow-sm"
+                         title="Remove item"
+                       >
+                         <X className="w-4 h-4" />
+                       </button>
+                       
+                       <div className="grid grid-cols-2 gap-4 mb-4">
+                         <div className="col-span-2">
+                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Merchant</label>
+                           <input 
+                              type="text" 
+                              value={tx.merchant} 
+                              onChange={(e) => updateScannedTx(tx.id, "merchant", e.target.value)} 
+                              className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                           />
+                         </div>
+                         <div>
+                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Amount</label>
+                           <input 
+                              type="number" 
+                              value={tx.amount} 
+                              onChange={(e) => updateScannedTx(tx.id, "amount", e.target.value)} 
+                              className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                           />
+                         </div>
+                         <div>
+                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Date</label>
+                           <input 
+                              type="date" 
+                              value={tx.date} 
+                              onChange={(e) => updateScannedTx(tx.id, "date", e.target.value)} 
+                              className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50" 
+                           />
+                         </div>
+                       </div>
+                    </div>
+                 ))}
+
+                 {scannedTransactions.length === 0 && (
+                    <div className="text-center p-8 text-slate-500 text-sm italic">
+                      All items removed. You can cancel or upload a new image.
+                    </div>
+                 )}
+               </div>
+            </div>
+          )}
+
+          {/* --- MANUAL MODE --- */}
           {addMode === "manual" && (
             <div className="space-y-4 animate-in fade-in">
               <div className="flex p-1 bg-slate-100 dark:bg-black/20 rounded-xl border border-slate-200 dark:border-white/5 mb-2">
@@ -622,13 +743,35 @@ export default function TransactionsPage() {
           )}
         </div>
         
-        <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 flex gap-3">
-          <button onClick={() => setIsAddOpen(false)} disabled={isSubmitting || isScanning} className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50">Cancel</button>
-          {addMode === "manual" ? (
+        <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-white dark:bg-[#0B0F19] flex gap-3 z-10">
+          <button 
+             onClick={() => {
+                if (addMode === "review") {
+                   setScannedTransactions([]);
+                   setAddMode("scan");
+                } else {
+                   setIsAddOpen(false);
+                }
+             }} 
+             disabled={isSubmitting || isScanning} 
+             className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
+          >
+            {addMode === "review" ? "Discard All" : "Cancel"}
+          </button>
+
+          {addMode === "manual" && (
              <button onClick={handleSaveTransaction} disabled={isSubmitting || myAccounts.length === 0} className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70">
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />} Save Record
              </button>
-          ) : (
+          )}
+
+          {addMode === "review" && (
+             <button onClick={handleSaveBulkTransactions} disabled={isSubmitting || scannedTransactions.length === 0} className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-70">
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save {scannedTransactions.length} Items
+             </button>
+          )}
+
+          {addMode === "scan" && (
              <button disabled className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)]/50 cursor-not-allowed">Upload to Start</button>
           )}
         </div>

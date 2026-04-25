@@ -81,18 +81,23 @@ export async function getDailyBriefing(userId: string) {
     }
 }
 
-// --- NEW: PHASE 2 RECEIPT SCANNER ---
+// --- PHASE 2: MULTI-ITEM RECEIPT & STATEMENT SCANNER ---
 export async function extractReceiptData(base64Image: string, mimeType: string) {
     try {
         const prompt = `
-        Analyze this receipt or invoice image. 
-        Extract the following information:
+        Analyze this receipt, invoice, or bank statement image. 
+        Extract ALL visible transactions. For each transaction, extract:
         1. "merchant": The name of the store, business, or entity.
-        2. "amount": The total final amount paid (as a pure number, no currency symbols).
+        2. "amount": The total amount (as a pure number, no currency symbols).
         3. "date": The date of the transaction in YYYY-MM-DD format.
 
-        If you cannot find a value, leave it blank.
-        Return ONLY a valid JSON object matching exactly those three keys. Do not use markdown.
+        Return ONLY a valid JSON ARRAY of objects matching this exact structure. Do not use markdown.
+        Example:
+        [
+          { "merchant": "Uber", "amount": 5500, "date": "2026-04-24" },
+          { "merchant": "Starbucks", "amount": 3200, "date": "2026-04-25" }
+        ]
+        If no transactions are found, return an empty array: []
         `;
 
         const response = await ai.models.generateContent({
@@ -106,11 +111,11 @@ export async function extractReceiptData(base64Image: string, mimeType: string) 
             }
         });
 
-        const jsonText = response.text || "{}";
+        const jsonText = response.text || "[]";
         return { success: true, data: JSON.parse(jsonText) };
 
     } catch (error) {
         console.error("Receipt Scan Error:", error);
-        return { success: false, error: "Failed to read the receipt image." };
+        return { success: false, error: "Failed to read the document image." };
     }
 }
