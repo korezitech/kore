@@ -19,17 +19,24 @@ export async function getDailyBriefing(userId: string) {
 
         const rates = rateData?.success ? rateData.rates : { NGN: 1355.15, GBP: 0.79, USD: 1 };
 
-        // 2. Build the Context String for Gemini
+        // 2. Build the Context String with EXPLICIT Liability Formatting
         let context = `Current Exchange Rates: $1 = ₦${rates.NGN}, £1 = ₦${(rates.NGN / rates.GBP).toFixed(2)}\n\n`;
         
-        context += "USER ACCOUNTS:\n";
+        context += "USER ACCOUNTS (ASSETS & DEBTS):\n";
         (accounts || []).forEach((acc: any) => {
-            context += `- ${acc.name} (${acc.type}): ${acc.currency} ${acc.balance}\n`;
+            // THE FIX: Explicitly translate credit types into "Debt" language
+            const isDebt = acc.type.toLowerCase() === 'credit' || acc.type.toLowerCase() === 'loan';
+            
+            if (isDebt) {
+                context += `- ${acc.name} (Credit/Debt): User OWES ${acc.currency} ${Math.abs(parseFloat(acc.balance))}\n`;
+            } else {
+                context += `- ${acc.name} (${acc.type}): Available Cash is ${acc.currency} ${acc.balance}\n`;
+            }
         });
 
-        context += "\nUSER OBLIGATIONS & BILLS:\n";
+        context += "\nUSER UPCOMING BILLS (MONEY LEAVING THE ACCOUNT):\n";
         (loans || []).forEach((loan: any) => {
-            context += `- ${loan.name} (${loan.type}): ${loan.currency} ${loan.payment}/${loan.frequency}. Next due: ${loan.nextDate || 'N/A'}\n`;
+            context += `- ${loan.name} (${loan.type}): User MUST PAY ${loan.currency} ${loan.payment} per ${loan.frequency}. Next due: ${loan.nextDate || 'N/A'}\n`;
         });
 
         // 3. Create the strict system instruction
@@ -37,9 +44,11 @@ export async function getDailyBriefing(userId: string) {
         You are KORE Brain, a premium financial analyst AI. 
         Review the user's provided financial data and generate exactly 3 insights for their daily dashboard briefing.
         
+        IMPORTANT: Accounts labeled "Credit/Debt" represent money the user owes to a bank. This is a liability, not cash. Do NOT suggest using credit balances to pay for things.
+        
         1. "Market insight": Comment on the exchange rates or their fiat balances.
-        2. "Action required": Identify an upcoming bill, low balance, or urgent debt. If none, suggest a good financial habit.
-        3. "Wealth opportunity": Suggest a smart move (e.g., investing idle cash from a specific account, paying off debt faster).
+        2. "Action required": Identify an upcoming bill, high debt, or urgent obligation. If none, suggest a good financial habit.
+        3. "Wealth opportunity": Suggest a smart move (e.g., investing idle cash, paying down "Credit/Debt" faster to save on interest).
 
         Keep each insight under 2 sentences. Be concise, professional, and data-driven. Do NOT use markdown.
         
@@ -54,9 +63,9 @@ export async function getDailyBriefing(userId: string) {
         ${context}
         `;
 
-        // 4. Call Gemini 3 Flash
+        // 4. Call Gemini 2.5 Flash
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash', 
+            model: 'gemini-2.5-flash',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
