@@ -18,7 +18,7 @@ const navigation = [
   { name: "Accounts", href: "/accounts", icon: Landmark },
   { name: "Transactions", href: "/transactions", icon: ArrowRightLeft },
   { name: "Investments", href: "/investments", icon: TrendingUp },
-  { name: "Loans & Debt", href: "/loans", icon: HandCoins },
+  { name: "Bills & Debt", href: "/loans", icon: HandCoins },
   { name: "Milestones", href: "/goals", icon: Target },
   { name: "KORE Brain", href: "/ai", icon: Bot },
 ];

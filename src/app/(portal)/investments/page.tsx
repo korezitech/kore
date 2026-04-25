@@ -485,21 +485,33 @@ export default function InvestmentsPage() {
                       <div className="md:hidden flex flex-col gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-white/5">
                         <div className="flex justify-between items-center bg-slate-50/50 dark:bg-white/5 p-2 rounded-lg">
                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Units / Avg Cost</span>
-                           <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{asset.shares} @ {currencySymbol}{formatMoney(asset.avgPrice)}</span>
+                           <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                             {showAmounts ? `${asset.shares} @ ${currencySymbol}${formatMoney(asset.avgPrice)}` : "••••••"}
+                           </span>
                         </div>
                         <div className="flex justify-between items-center px-2 py-1">
                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Live Price</span>
-                           <span className="text-sm font-bold text-slate-900 dark:text-white">{currencySymbol}{formatMoney(asset.currentPrice)}</span>
+                           <span className="text-sm font-bold text-slate-900 dark:text-white">
+                             {showAmounts ? `${currencySymbol}${formatMoney(asset.currentPrice)}` : "••••••"}
+                           </span>
                         </div>
                         <div className="flex justify-between items-center px-2 py-1 border-t border-dashed border-slate-200 dark:border-white/10 pt-2">
                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Market Value</span>
-                           <span className="text-base font-bold text-slate-900 dark:text-white">{currencySymbol}{formatMoney(assetTotalValue)}</span>
+                           <span className="text-base font-bold text-slate-900 dark:text-white">
+                             {showAmounts ? `${currencySymbol}${formatMoney(assetTotalValue)}` : "••••••"}
+                           </span>
                         </div>
                         <div className="flex justify-between items-center px-2 py-1">
                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">All-Time Returns</span>
                            <span className={`text-sm font-bold flex items-center gap-1 ${isPnLPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                             {isPnLPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                             {isPnLPositive ? "+" : ""}{currencySymbol}{formatMoney(assetPnL)} ({assetPnLPercent.toFixed(2)}%)
+                             {showAmounts ? (
+                               <>
+                                 {isPnLPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                 {isPnLPositive ? "+" : ""}{currencySymbol}{formatMoney(assetPnL)} ({assetPnLPercent.toFixed(2)}%)
+                               </>
+                             ) : (
+                               "••••••"
+                             )}
                            </span>
                         </div>
                       </div>
