@@ -1,5 +1,6 @@
 "use client";
 
+import { getDailyBriefing } from "@/actions/aiActions"; 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -12,7 +13,7 @@ import {
 import { getUserAccounts } from "@/actions/accountActions";
 import { getUserTransactions } from "@/actions/transactionActions";
 import { getLiveExchangeRates } from "@/actions/currencyActions";
-import { getUserLoans } from "@/actions/loanActions"; // NEW: Fetch obligations
+import { getUserLoans } from "@/actions/loanActions";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -24,9 +25,13 @@ export default function DashboardPage() {
   // Live Data States
   const [accounts, setAccounts] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [loans, setLoans] = useState<any[]>([]); // NEW: Store obligations
+  const [loans, setLoans] = useState<any[]>([]);
   const [liveRates, setLiveRates] = useState<any>(null);
   const [isFetching, setIsFetching] = useState(true);
+
+  // AI States
+  const [aiBriefing, setAiBriefing] = useState<any[]>([]);
+  const [isGeneratingBriefing, setIsGeneratingBriefing] = useState(true);
 
   useEffect(() => {
     if (userId) {
@@ -58,6 +63,24 @@ export default function DashboardPage() {
     }
     
     setIsFetching(false);
+
+    // --- AI BRIEFING CACHING LOGIC ---
+    const todayStr = new Date().toISOString().split('T')[0];
+    const cacheKey = `kore_briefing_${userId}_${todayStr}`;
+    const cachedBriefing = localStorage.getItem(cacheKey);
+
+    if (cachedBriefing) {
+      setAiBriefing(JSON.parse(cachedBriefing));
+      setIsGeneratingBriefing(false);
+    } else {
+      setIsGeneratingBriefing(true);
+      const aiResult = await getDailyBriefing(userId);
+      if (aiResult.success && aiResult.data) {
+        setAiBriefing(aiResult.data);
+        localStorage.setItem(cacheKey, JSON.stringify(aiResult.data));
+      }
+      setIsGeneratingBriefing(false);
+    }
   };
 
   const formatBalance = (val: number) => Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -105,7 +128,7 @@ export default function DashboardPage() {
     return { main: formattedMain, sub: subText };
   };
 
-  // NEW: Monthly Burn Rate Calculator
+  // Monthly Burn Rate Calculator
   const calculateMonthlyBurn = () => {
     if (!liveRates) return { main: "...", upcoming: [] };
 
@@ -220,7 +243,6 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
-            {/* Added whitespace-nowrap here per our fix */}
             <h2 className="text-5xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300 whitespace-nowrap">
               {showAmounts ? netWorthData.main : "••••••"}
             </h2>
@@ -296,23 +318,33 @@ export default function DashboardPage() {
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">Daily AI Briefing</h3>
         </div>
         
-        <ul className="space-y-4 pl-2">
-          <li className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-white/5 p-3 rounded-xl border border-slate-200/50 dark:border-white/5">
-            <div className="w-2 h-2 rounded-full bg-[var(--color-brand-deep)] mt-1.5 flex-shrink-0 shadow-[0_0_8px_var(--color-brand-deep)]"></div>
-            <p className="leading-relaxed">
-              <strong className="text-slate-900 dark:text-white">Market insight:</strong> Current USD/NGN rate is {liveRates ? `₦${formatBalance(liveRates.NGN)}` : 'updating...'}. Consider holding USD assets as the Naira fluctuates.
-            </p>
-          </li>
-          <li className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-white/5 p-3 rounded-xl border border-slate-200/50 dark:border-white/5">
-            <div className="w-2 h-2 rounded-full bg-orange-500 mt-1.5 flex-shrink-0 shadow-[0_0_8px_#f97316]"></div>
-            <p className="leading-relaxed">
-              <strong className="text-slate-900 dark:text-white">Action required:</strong> You have {burnData.upcoming.length} upcoming obligations. Ensure accounts are funded.
-            </p>
-          </li>
-        </ul>
+        {isGeneratingBriefing ? (
+          <div className="flex flex-col items-center justify-center py-6 text-[var(--color-brand-deep)]">
+            <Loader2 className="w-6 h-6 animate-spin mb-2" />
+            <p className="text-xs font-bold animate-pulse">KORE Brain is analyzing your portfolio...</p>
+          </div>
+        ) : (
+          <ul className="space-y-4 pl-2">
+            {aiBriefing.map((item, idx) => {
+              // Map colors dynamically based on the AI's JSON return
+              let dotColor = "bg-[var(--color-brand-deep)] shadow-[0_0_8px_var(--color-brand-deep)]";
+              if (item.color === "orange") dotColor = "bg-orange-500 shadow-[0_0_8px_#f97316]";
+              if (item.color === "emerald") dotColor = "bg-emerald-500 shadow-[0_0_8px_#10b981]";
+
+              return (
+                <li key={idx} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-white/5 p-3 rounded-xl border border-slate-200/50 dark:border-white/5">
+                  <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${dotColor}`}></div>
+                  <p className="leading-relaxed">
+                    <strong className="text-slate-900 dark:text-white">{item.type}:</strong> {item.text}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
-      {/* NEW: MONTHLY BURN RATE WIDGET */}
+      {/* MONTHLY BURN RATE WIDGET */}
       <div className="glass-panel p-6 relative overflow-hidden flex flex-col md:flex-row gap-6 items-center">
         <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-rose-500 to-orange-400"></div>
         
