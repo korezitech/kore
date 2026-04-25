@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Bot, Send, Paperclip, Mic, Sparkles, TrendingUp, 
@@ -14,6 +14,37 @@ import {
   clearChatHistory 
 } from "@/actions/aiActions";
 import { createTransaction } from "@/actions/transactionActions";
+
+// --- TYPEWRITER EFFECT COMPONENT ---
+const TypewriterEffect = ({ content, onType }: { content: string, onType: () => void }) => {
+  const [displayed, setDisplayed] = useState("");
+
+  useEffect(() => {
+    let i = 0;
+    setDisplayed(""); // Reset displayed text when content changes
+    const timer = setInterval(() => {
+      setDisplayed(content.substring(0, i + 1));
+      i++;
+      onType(); // Auto-scroll as it types
+      if (i >= content.length) clearInterval(timer);
+    }, 15); // 15ms per character for a fast, snappy typing feel
+    
+    return () => clearInterval(timer);
+  }, [content, onType]);
+
+  return (
+    <>
+      {displayed.split('\n').map((line, i) => (
+        <span key={i}>
+          {line.includes('**') ? (
+            <span dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+          ) : line}
+          {i !== displayed.split('\n').length - 1 && <br />}
+        </span>
+      ))}
+    </>
+  );
+};
 
 const quickPrompts = [
   { icon: TrendingUp, text: "Analyze my portfolio risk" },
@@ -36,9 +67,10 @@ export default function AIBrainPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
+  // Wrapped in useCallback so it doesn't trigger continuous re-renders in the TypewriterEffect
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   // 1. Load History from Database on Mount
   useEffect(() => {
@@ -66,7 +98,7 @@ export default function AIBrainPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]);
+  }, [messages, isTyping, scrollToBottom]);
 
   // 2. Handle Chat Send & Database Saving
   const handleSend = async (e?: React.FormEvent, promptOverride?: string) => {
@@ -111,7 +143,8 @@ export default function AIBrainPage() {
       isToolCall: (result as any).isToolCall,
       toolName: (result as any).toolName,
       toolArgs: (result as any).toolArgs,
-      toolStatus: (result as any).isToolCall ? 'pending' : undefined
+      toolStatus: (result as any).isToolCall ? 'pending' : undefined,
+      isNew: true // <-- THIS FLAG TRIGGERS THE TYPEWRITER EFFECT
     };
 
     // Update UI immediately
@@ -266,14 +299,20 @@ export default function AIBrainPage() {
                           ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm' 
                           : 'bg-white dark:bg-[#161B22] border border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300 rounded-tl-sm'
                       }`}>
-                        {msg.content.split('\n').map((line: string, i: number) => (
-                          <span key={i}>
-                            {line.includes('**') ? (
-                              <span dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
-                            ) : line}
-                            {i !== msg.content.split('\n').length - 1 && <br />}
-                          </span>
-                        ))}
+                        
+                        {/* CONDITIONAL RENDERING FOR TYPEWRITER */}
+                        {msg.isNew ? (
+                          <TypewriterEffect content={msg.content} onType={scrollToBottom} />
+                        ) : (
+                          msg.content.split('\n').map((line: string, i: number) => (
+                            <span key={i}>
+                              {line.includes('**') ? (
+                                <span dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                              ) : line}
+                              {i !== msg.content.split('\n').length - 1 && <br />}
+                            </span>
+                          ))
+                        )}
 
                         {/* Interactive Tool Widget */}
                         {msg.isToolCall && msg.toolName === "create_transaction" && msg.toolArgs && (
