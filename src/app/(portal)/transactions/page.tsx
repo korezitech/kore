@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Search, Filter, Download, 
@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { getUserTransactions, createTransaction, deleteTransaction, updateTransactionNotes, bulkDeleteTransactions } from "@/actions/transactionActions";
 import { getUserAccounts } from "@/actions/accountActions";
+import { extractReceiptData } from "@/actions/aiActions";
 
 export default function TransactionsPage() {
   const { data: session, status } = useSession();
@@ -35,7 +36,7 @@ export default function TransactionsPage() {
   
   // Delete Configuration
   const [confirmDelete, setConfirmDelete] = useState(false); 
-  const [reverseBalance, setReverseBalance] = useState(true); // Reversing balance is checked by default
+  const [reverseBalance, setReverseBalance] = useState(true);
   
   // Add States
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -47,6 +48,9 @@ export default function TransactionsPage() {
   const [category, setCategory] = useState("Expense");
   const [txType, setTxType] = useState<"expense" | "income">("expense");
 
+  // Scanner States
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isScanning, setIsScanning] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
@@ -99,7 +103,6 @@ export default function TransactionsPage() {
     return code || ""; 
   };
 
-  // Filter Logic (Search + Dropdown Filter)
   const filteredTransactions = transactions.filter(tx => {
       const searchStr = searchTerm.toLowerCase();
       const matchesSearch = (tx.title && tx.title.toLowerCase().includes(searchStr)) ||
@@ -113,7 +116,6 @@ export default function TransactionsPage() {
       return matchesSearch && matchesFilter;
   });
 
-  // Bulk Selection Handlers
   const toggleSelectAll = (checked: boolean) => {
       if (checked) {
           setSelectedTxIds(filteredTransactions.map(tx => tx.id));
@@ -130,7 +132,6 @@ export default function TransactionsPage() {
       }
   };
 
-  // Export
   const handleExportCSV = () => {
     if (filteredTransactions.length === 0) return showToast("No transactions to export.", "error");
 
@@ -150,7 +151,44 @@ export default function TransactionsPage() {
     showToast("Export successful!", "success");
   };
 
-  // Add Transaction
+  // --- NEW: AI FILE UPLOAD HANDLER ---
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = async () => {
+      // Remove the "data:image/jpeg;base64," prefix
+      const base64String = (reader.result as string).split(',')[1];
+      const mimeType = file.type;
+
+      const result = await extractReceiptData(base64String, mimeType);
+
+      if (result.success && result.data) {
+        setMerchant(result.data.merchant || "");
+        setAmount(result.data.amount ? String(result.data.amount) : "");
+        if (result.data.date) setDate(result.data.date);
+        
+        showToast("Extracted! Please verify details.", "success");
+        setAddMode("manual"); // Switch over to the form automatically
+      } else {
+        showToast(result.error || "Failed to read receipt.", "error");
+      }
+      setIsScanning(false);
+      
+      // Reset input so they can upload the same file again if needed
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    
+    reader.onerror = () => {
+      showToast("Failed to read file on your device.", "error");
+      setIsScanning(false);
+    };
+  };
+
   const handleSaveTransaction = async () => {
     if (!amount || !merchant || !selectedAccountId || !date) {
       return showToast("Please fill out all required fields.", "error");
@@ -171,7 +209,6 @@ export default function TransactionsPage() {
     setIsSubmitting(false);
   };
 
-  // Delete Individual Transaction
   const handleDeleteTransaction = async () => {
       if (!selectedTx) return;
       setIsSubmitting(true);
@@ -189,7 +226,6 @@ export default function TransactionsPage() {
       setIsSubmitting(false);
   };
 
-  // Delete Bulk Transactions
   const handleBulkDelete = async () => {
       if (selectedTxIds.length === 0) return;
       setIsSubmitting(true);
@@ -207,7 +243,6 @@ export default function TransactionsPage() {
       setIsSubmitting(false);
   }
 
-  // Notes
   const handleSaveNotes = async () => {
       if (!selectedTx) return;
       setIsSubmitting(true);
@@ -226,7 +261,7 @@ export default function TransactionsPage() {
   const closeDrawer = () => {
     setSelectedTx(null);
     setConfirmDelete(false); 
-    setReverseBalance(true); // Reset flag when closing
+    setReverseBalance(true); 
   }
 
   const handleLoadMore = () => {
@@ -237,7 +272,6 @@ export default function TransactionsPage() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 relative min-h-[80vh] pb-24">
       
-      {/* CUSTOM TOAST NOTIFICATION */}
       {toast && (
         <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3.5 rounded-2xl shadow-2xl shadow-black/10 font-bold text-sm animate-in slide-in-from-top-5 flex items-center gap-3 ${
           toast.type === 'error' ? 'bg-rose-500 text-white' : 'bg-emerald-500 text-white'
@@ -247,7 +281,6 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* FLOATING BULK ACTION BAR */}
       {selectedTxIds.length > 0 && (
          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] md:w-auto max-w-sm z-[90] bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 md:px-6 py-3.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center justify-between gap-4 animate-in slide-in-from-bottom-5">
             <div className="flex items-center gap-3">
@@ -267,7 +300,6 @@ export default function TransactionsPage() {
          </div>
       )}
 
-      {/* BULK DELETE CONFIRMATION MODAL */}
       {showBulkDeleteConfirm && (
          <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-300">
            <div className="bg-white dark:bg-[#0B0F19] border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl p-6 w-full max-w-sm transform transition-all scale-in-95">
@@ -297,7 +329,6 @@ export default function TransactionsPage() {
          </div>
       )}
 
-      {/* HEADER & ACTIONS */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Transactions</h2>
@@ -319,7 +350,6 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* COMMAND BAR */}
       <div className="bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-md border border-slate-200 dark:border-white/10 rounded-2xl p-2 md:p-3 flex flex-col md:flex-row gap-3 relative z-20">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -343,7 +373,6 @@ export default function TransactionsPage() {
             <Filter className="w-4 h-4" /> {txFilter === "All" ? "Filter" : txFilter} <ChevronDown className="w-3 h-3 opacity-50" />
           </button>
 
-          {/* FILTER DROPDOWN */}
           {filterOpen && (
              <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
                 <button onClick={() => { setTxFilter("All"); setFilterOpen(false); }} className={`w-full text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors ${txFilter === "All" ? "text-[var(--color-brand-deep)]" : "text-slate-700 dark:text-slate-300"}`}>All Transactions</button>
@@ -354,7 +383,6 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* THE LEDGER */}
       {isFetching ? (
         <div className="flex flex-col items-center justify-center py-20 text-slate-500">
           <Loader2 className="w-8 h-8 animate-spin mb-4 text-[var(--color-brand-deep)]" />
@@ -391,7 +419,7 @@ export default function TransactionsPage() {
                   onClick={() => {
                       setSelectedTx({ ...tx, symbol, icon: TxIcon, isCredit });
                       setTxNotes(tx.notes || "");
-                      setReverseBalance(true); // reset reverse balance choice
+                      setReverseBalance(true);
                   }}
                   className={`flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-4 p-4 md:items-center cursor-pointer transition-colors group ${isSelected ? 'bg-[var(--color-brand-deep)]/5 dark:bg-[var(--color-brand-deep)]/10' : 'hover:bg-slate-50 dark:hover:bg-white/5'}`}
                 >
@@ -456,7 +484,6 @@ export default function TransactionsPage() {
             )}
           </div>
 
-          {/* LOAD MORE BUTTON */}
           {filteredTransactions.length > 0 && (
             <div className="p-4 border-t border-slate-100 dark:border-white/5 bg-slate-50/30 dark:bg-black/10 flex justify-center">
               <button 
@@ -475,14 +502,10 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* ========================================= */}
-      {/* ADD TRANSACTION DRAWER                    */}
-      {/* ========================================= */}
-      
       {isAddOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
-          onClick={() => !isSubmitting && setIsAddOpen(false)}
+          onClick={() => !isSubmitting && !isScanning && setIsAddOpen(false)}
         />
       )}
 
@@ -491,20 +514,19 @@ export default function TransactionsPage() {
           isAddOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        {/* ADD DRAWER CONTENT (Unchanged visually, functionally intact) */}
         <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">New Transaction</h3>
-          <button onClick={() => !isSubmitting && setIsAddOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
+          <button onClick={() => !isSubmitting && !isScanning && setIsAddOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="flex p-1 bg-slate-100 dark:bg-black/20 rounded-xl border border-slate-200 dark:border-white/5">
-            <button onClick={() => setAddMode("scan")} disabled={isSubmitting} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "scan" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
+            <button onClick={() => setAddMode("scan")} disabled={isSubmitting || isScanning} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "scan" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
               <Camera className="w-4 h-4" /> AI Smart Scan
             </button>
-            <button onClick={() => setAddMode("manual")} disabled={isSubmitting} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "manual" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
+            <button onClick={() => setAddMode("manual")} disabled={isSubmitting || isScanning} className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-lg transition-all disabled:opacity-50 ${addMode === "manual" ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-300"}`}>
               <FileText className="w-4 h-4" /> Manual Entry
             </button>
           </div>
@@ -522,13 +544,34 @@ export default function TransactionsPage() {
                 )}
               </div>
 
-              <div className="border-2 border-dashed border-slate-300 dark:border-white/20 rounded-2xl p-8 flex flex-col items-center justify-center text-center bg-slate-50/50 dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer group">
-                <div className="w-16 h-16 bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <UploadCloud className="w-8 h-8" />
+              {/* HIDDEN FILE INPUT */}
+              <input 
+                type="file" 
+                accept="image/*,application/pdf" 
+                className="hidden" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+              />
+
+              <div 
+                onClick={() => !isScanning && fileInputRef.current?.click()}
+                className={`border-2 border-dashed border-slate-300 dark:border-white/20 rounded-2xl p-8 flex flex-col items-center justify-center text-center transition-colors group ${isScanning ? 'bg-slate-100 dark:bg-white/10 cursor-wait' : 'bg-slate-50/50 dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 cursor-pointer'}`}
+              >
+                <div className={`w-16 h-16 bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] rounded-full flex items-center justify-center mb-4 transition-transform ${isScanning ? 'animate-pulse' : 'group-hover:scale-110'}`}>
+                  {isScanning ? <Loader2 className="w-8 h-8 animate-spin" /> : <UploadCloud className="w-8 h-8" />}
                 </div>
-                <h4 className="text-base font-bold text-slate-900 dark:text-white mb-1">Tap to scan or upload</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Supports Receipt Photos, PDFs, and Bank CSVs. KORE AI will extract merchant, date, and amount automatically.</p>
-                <button className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-2 rounded-full text-sm font-bold shadow-md">Choose File</button>
+                <h4 className="text-base font-bold text-slate-900 dark:text-white mb-1">
+                  {isScanning ? "Extracting data..." : "Tap to scan or upload"}
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  {isScanning ? "Please wait, KORE Brain is reading the receipt." : "Supports Receipt Photos, PDFs, and Bank CSVs."}
+                </p>
+                <button 
+                  disabled={isScanning}
+                  className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-2 rounded-full text-sm font-bold shadow-md disabled:opacity-50"
+                >
+                  {isScanning ? "Scanning..." : "Choose File"}
+                </button>
               </div>
             </div>
           )}
@@ -580,21 +623,18 @@ export default function TransactionsPage() {
         </div>
         
         <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 flex gap-3">
-          <button onClick={() => setIsAddOpen(false)} disabled={isSubmitting} className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50">Cancel</button>
+          <button onClick={() => setIsAddOpen(false)} disabled={isSubmitting || isScanning} className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50">Cancel</button>
           {addMode === "manual" ? (
              <button onClick={handleSaveTransaction} disabled={isSubmitting || myAccounts.length === 0} className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70">
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />} Save Record
              </button>
           ) : (
-             <button className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20">Start Scan</button>
+             <button disabled className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)]/50 cursor-not-allowed">Upload to Start</button>
           )}
         </div>
       </div>
 
-      {/* ========================================= */}
-      {/* RECEIPT VIEW DRAWER                       */}
-      {/* ========================================= */}
-      
+      {/* RECEIPT VIEW DRAWER */}
       {selectedTx && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
@@ -632,7 +672,6 @@ export default function TransactionsPage() {
         {selectedTx && (
           <div className="flex-1 overflow-y-auto p-6 flex flex-col relative">
             
-            {/* INLINE DELETE CONFIRMATION PANEL */}
             {confirmDelete && (
               <div className="mb-6 flex flex-col gap-3 animate-in slide-in-from-top-4 duration-300 bg-rose-50 dark:bg-rose-500/10 p-5 rounded-2xl border border-rose-100 dark:border-rose-500/20">
                 <p className="text-sm font-bold text-rose-600 dark:text-rose-400">Delete this transaction?</p>

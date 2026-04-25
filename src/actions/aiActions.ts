@@ -71,3 +71,37 @@ export async function getDailyBriefing(userId: string) {
         return { success: false, error: "Failed to generate AI briefing." };
     }
 }
+
+// --- NEW: PHASE 2 RECEIPT SCANNER ---
+export async function extractReceiptData(base64Image: string, mimeType: string) {
+    try {
+        const prompt = `
+        Analyze this receipt or invoice image. 
+        Extract the following information:
+        1. "merchant": The name of the store, business, or entity.
+        2. "amount": The total final amount paid (as a pure number, no currency symbols).
+        3. "date": The date of the transaction in YYYY-MM-DD format.
+
+        If you cannot find a value, leave it blank.
+        Return ONLY a valid JSON object matching exactly those three keys. Do not use markdown.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                prompt,
+                { inlineData: { data: base64Image, mimeType: mimeType } }
+            ],
+            config: {
+                responseMimeType: "application/json",
+            }
+        });
+
+        const jsonText = response.text || "{}";
+        return { success: true, data: JSON.parse(jsonText) };
+
+    } catch (error) {
+        console.error("Receipt Scan Error:", error);
+        return { success: false, error: "Failed to read the receipt image." };
+    }
+}
