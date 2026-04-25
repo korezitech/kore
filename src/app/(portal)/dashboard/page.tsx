@@ -183,7 +183,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
-            <h2 className="text-5xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300">
+            <h2 className="text-5xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300 whitespace-nowrap">
               {showAmounts ? netWorthData.main : "••••••"}
             </h2>
             <div className="flex items-center gap-1 text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg mb-1 md:mb-2 w-max shadow-sm">
