@@ -6,7 +6,8 @@ import {
   Landmark, Plus, X, Home, Car, CreditCard, Banknote, 
   Calendar, ShieldCheck, TrendingDown, TrendingUp, CheckCircle2, Loader2, 
   Sparkles, AlertTriangle, Eye, EyeOff, Flag, MoreHorizontal, 
-  Edit3, Trash2, HeartPulse, Smartphone, GraduationCap, Building2, Users
+  Edit3, Trash2, HeartPulse, Smartphone, GraduationCap, Building2, Users,
+  Zap, Repeat, FileText // <-- NEW ICONS FOR BILLS
 } from "lucide-react";
 
 import { getUserLoans, createLoan, processLoanPayment, getLoanHistory, updateLoan, deleteLoan } from "@/actions/loanActions";
@@ -79,7 +80,7 @@ export default function LoansPage() {
     const [loanData, accData, rateData] = await Promise.all([
         getUserLoans(userId),
         getUserAccounts(userId),
-        getLiveExchangeRates() // <-- Fetches the live rates
+        getLiveExchangeRates()
     ]);
     
     setLoans(loanData || []);
@@ -88,7 +89,6 @@ export default function LoansPage() {
     setAccounts(fundingAccounts);
     if (fundingAccounts.length > 0) setFundingAccountId(fundingAccounts[0].id);
 
-    // Save the rates to state!
     if (rateData && rateData.success) {
         setLiveRates(rateData.rates);
     }
@@ -109,7 +109,6 @@ export default function LoansPage() {
     return code; 
   };
 
-  // --- CUSTOM ALERT HELPER ---
   const showAlert = (title: string, message: string, type: 'error' | 'success' = 'error') => {
     setConfirmConfig({
       title,
@@ -123,9 +122,11 @@ export default function LoansPage() {
     setIsConfirmModalOpen(true);
   };
 
+  // EXPANDED: Now handles bills too!
   const getLoanIcon = (type: string) => {
       switch(type) {
-          case 'mortgage': return { Icon: Home, color: "text-indigo-500", bg: "bg-indigo-500/10", fill: "bg-indigo-500" };
+          case 'mortgage': 
+          case 'rent': return { Icon: Home, color: "text-indigo-500", bg: "bg-indigo-500/10", fill: "bg-indigo-500" };
           case 'auto': return { Icon: Car, color: "text-blue-500", bg: "bg-blue-500/10", fill: "bg-blue-500" };
           case 'credit': return { Icon: CreditCard, color: "text-rose-500", bg: "bg-rose-500/10", fill: "bg-rose-500" };
           case 'health': return { Icon: HeartPulse, color: "text-pink-500", bg: "bg-pink-500/10", fill: "bg-pink-500" };
@@ -133,6 +134,10 @@ export default function LoansPage() {
           case 'education': return { Icon: GraduationCap, color: "text-teal-500", bg: "bg-teal-500/10", fill: "bg-teal-500" };
           case 'bank': return { Icon: Building2, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-500/10", fill: "bg-slate-500" };
           case 'family': return { Icon: Users, color: "text-orange-500", bg: "bg-orange-500/10", fill: "bg-orange-500" };
+          case 'utilities': return { Icon: Zap, color: "text-amber-500", bg: "bg-amber-500/10", fill: "bg-amber-500" };
+          case 'subscription': return { Icon: Repeat, color: "text-cyan-500", bg: "bg-cyan-500/10", fill: "bg-cyan-500" };
+          case 'insurance': return { Icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10", fill: "bg-emerald-500" };
+          case 'taxes': return { Icon: FileText, color: "text-slate-500", bg: "bg-slate-500/10", fill: "bg-slate-500" };
           default: return { Icon: Landmark, color: "text-amber-500", bg: "bg-amber-500/10", fill: "bg-amber-500" };
       }
   };
@@ -251,10 +256,13 @@ export default function LoansPage() {
 
   const smartInsight = getPayoffDetails(addForm.currentBalance || addForm.originalAmount, addForm.payment, addForm.apr, addForm.totalRepayment, addForm.frequency, addForm.nextDate);
 
+  // HELPER: Determine if type is a recurring bill
+  const isBillType = (type: string) => ['rent', 'utilities', 'subscription', 'insurance', 'taxes'].includes(type);
+
   const openAddDrawer = () => {
     setDrawerMode("add");
     setSelectedLoan(null);
-    setAddForm({ name: "", lender: "", originalAmount: "", currentBalance: "", apr: "", totalRepayment: "", payment: "", frequency: "monthly", type: "personal", currency: "NGN", nextDate: "" });
+    setAddForm({ name: "", lender: "", originalAmount: "0", currentBalance: "0", apr: "", totalRepayment: "", payment: "", frequency: "monthly", type: "personal", currency: "NGN", nextDate: "" });
     setIsDrawerOpen(true);
   };
 
@@ -287,22 +295,31 @@ export default function LoansPage() {
   };
 
   const handleSaveLoan = async () => {
-      if (!addForm.name || !addForm.originalAmount || !addForm.payment) {
-          return showAlert("Missing Information", "Please fill in the Name, Amount, and Payment fields.");
+      // For bills, original amount might be 0, which is fine. Just need name and payment.
+      if (!addForm.name || !addForm.payment) {
+          return showAlert("Missing Information", "Please fill in the Name and Payment fields.");
       }
       setIsSubmitting(true);
       
+      // Ensure defaults for DB if empty
+      const payload = {
+        ...addForm,
+        userId,
+        originalAmount: addForm.originalAmount || "0",
+        currentBalance: addForm.currentBalance || "0"
+      };
+
       let result;
       if (drawerMode === "add") {
-        result = await createLoan({ ...addForm, userId });
+        result = await createLoan(payload);
       } else {
-        result = await updateLoan({ ...addForm, loanId: selectedLoan.id, userId });
+        result = await updateLoan({ ...payload, loanId: selectedLoan.id });
       }
 
       if (result.success) {
           await loadData();
           setIsDrawerOpen(false);
-          showAlert("Success", `Liability successfully ${drawerMode === 'add' ? 'logged' : 'updated'}.`, "success");
+          showAlert("Success", `Obligation successfully ${drawerMode === 'add' ? 'logged' : 'updated'}.`, "success");
       } else {
           showAlert("Action Failed", result.error);
       }
@@ -312,9 +329,9 @@ export default function LoansPage() {
   const handleDeleteLoan = () => {
     if (!selectedLoan) return;
     setConfirmConfig({
-      title: "Delete Liability",
-      message: `Are you sure you want to permanently delete this loan? This will remove it from your tracker.`,
-      actionText: "Delete Liability",
+      title: "Delete Obligation",
+      message: `Are you sure you want to permanently delete this? This will remove it from your tracker.`,
+      actionText: "Delete Obligation",
       actionColor: "bg-rose-600 hover:bg-rose-700",
       iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
       isAlertOnly: false,
@@ -325,7 +342,7 @@ export default function LoansPage() {
           setIsDrawerOpen(false);
           setIsConfirmModalOpen(false);
         } else {
-          showAlert("Error", "Error deleting liability: " + result.error);
+          showAlert("Error", "Error deleting: " + result.error);
         }
       }
     });
@@ -358,7 +375,7 @@ export default function LoansPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500">
         <Loader2 className="w-8 h-8 animate-spin mb-4 text-[var(--color-brand-deep)]" />
-        <p className="text-sm font-semibold">Calculating liabilities...</p>
+        <p className="text-sm font-semibold">Calculating obligations...</p>
       </div>
     );
   }
@@ -370,14 +387,14 @@ export default function LoansPage() {
         {/* HEADER & ACTIONS */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Loans & Debt</h2>
-            <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">Track your liabilities and payoff progress.</p>
+            <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Bills & Debt</h2>
+            <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">Track your liabilities, bills, and payoff progress.</p>
           </div>
           <button 
             onClick={openAddDrawer}
             className="flex items-center justify-center gap-2 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 hover:scale-105 active:scale-95 w-full md:w-auto"
           >
-            <Plus className="w-4 h-4" /> Log Liability
+            <Plus className="w-4 h-4" /> Log Obligation
           </button>
         </div>
 
@@ -392,7 +409,7 @@ export default function LoansPage() {
               <div className="w-full md:w-auto">
                 <div className="flex items-center justify-between md:justify-start gap-4 mb-4">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Outstanding</p>
+                    <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Outstanding Debt</p>
                     <button 
                       onClick={() => setShowAmounts(!showAmounts)} 
                       className="text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors p-1"
@@ -438,7 +455,7 @@ export default function LoansPage() {
                 <div className="flex items-center gap-2 text-rose-700 bg-rose-100 dark:text-rose-400 dark:bg-[#3D0A14]/90 backdrop-blur-md px-3 py-2 rounded-xl shadow-sm border border-rose-200 dark:border-rose-500/20">
                   <Calendar className="w-5 h-5" />
                   <div>
-                    <p className="text-[10px] font-bold uppercase opacity-80 tracking-wider">Avg Monthly Obligation</p>
+                    <p className="text-[10px] font-bold uppercase opacity-80 tracking-wider">Avg Monthly Burn (Bills + Debt)</p>
                     <p className="text-sm font-bold transition-all duration-300">
                       {showAmounts ? `~${overviewData.obligation}/mo` : "••••••"}
                     </p>
@@ -461,8 +478,8 @@ export default function LoansPage() {
                 <Banknote className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Active Debt Management</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">You are currently managing {loans.length} active liabilities.</p>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Active Obligations</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">You are currently managing {loans.length} active bills or liabilities.</p>
               </div>
             </div>
             <div className="h-px bg-slate-100 dark:bg-white/5 w-full"></div>
@@ -481,23 +498,24 @@ export default function LoansPage() {
         {loans.length === 0 ? (
             <div className="glass-panel flex flex-col items-center justify-center py-20 text-slate-500 text-center">
               <Landmark className="w-12 h-12 mb-4 text-slate-300 dark:text-slate-600" />
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">No Active Liabilities</h3>
-              <p className="text-sm max-w-sm mb-6">You haven't logged any loans, mortgages, or credit debt yet.</p>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">No Active Obligations</h3>
+              <p className="text-sm max-w-sm mb-6">You haven't logged any loans, bills, or subscriptions yet.</p>
               <button onClick={openAddDrawer} className="text-[var(--color-brand-deep)] font-bold hover:underline">
-                + Log your first liability
+                + Log your first obligation
               </button>
             </div>
         ) : (
-          /* ACTIVE LOANS GRID */
+          /* ACTIVE OBLIGATIONS GRID */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {loans.map((loan) => {
               const original = parseFloat(loan.originalAmount);
               const current = parseFloat(loan.currentBalance);
               const paidAmount = Math.max(0, original - current);
-              const progressPercent = Math.max(0, Math.min(100, (paidAmount / original) * 100));
+              const progressPercent = original > 0 ? Math.max(0, Math.min(100, (paidAmount / original) * 100)) : 0;
               const freqSuffix = loan.frequency === "weekly" ? "/wk" : loan.frequency === "yearly" ? "/yr" : "/mo";
               const { Icon, color, bg, fill } = getLoanIcon(loan.type);
               const sym = getCurrencySymbol(loan.currency);
+              const isBill = isBillType(loan.type);
               
               const cardInsight = getPayoffDetails(loan.currentBalance, loan.payment, loan.apr, loan.totalRepayment, loan.frequency, loan.nextDate);
 
@@ -521,7 +539,7 @@ export default function LoansPage() {
                             <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
                           </button>
                           <button onClick={() => { setSelectedLoan(loan); handleDeleteLoan(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
-                            <Trash2 className="w-4 h-4" /> Delete Liability
+                            <Trash2 className="w-4 h-4" /> Delete Obligation
                           </button>
                         </div>
                       </>
@@ -535,46 +553,58 @@ export default function LoansPage() {
                       </div>
                       <div>
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white group-hover:text-[var(--color-brand-deep)] transition-colors truncate max-w-[180px]">{loan.name}</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]">{loan.lender} • {loan.apr}% APR</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
+                          {loan.lender ? `${loan.lender} • ` : ''}{isBill ? 'Recurring Bill' : `${loan.apr}% APR`}
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-end mb-4">
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Current Balance</p>
-                      <h4 className="text-3xl font-bold text-slate-900 dark:text-white">
-                        {showAmounts ? `${sym}${formatMoney(current)}` : "••••••"}
-                      </h4>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Original</p>
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                        {showAmounts ? `${sym}${formatMoney(original)}` : "••••••"}
-                      </p>
-                    </div>
-                  </div>
+                  {/* SMART LAYOUT: Show Balance for Loans, Show "Recurring" badge for Bills */}
+                  {!isBill ? (
+                    <>
+                      <div className="flex justify-between items-end mb-4">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Current Balance</p>
+                          <h4 className="text-3xl font-bold text-slate-900 dark:text-white">
+                            {showAmounts ? `${sym}${formatMoney(current)}` : "••••••"}
+                          </h4>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Original</p>
+                          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                            {showAmounts ? `${sym}${formatMoney(original)}` : "••••••"}
+                          </p>
+                        </div>
+                      </div>
 
-                  <div className="space-y-2 mb-6 mt-auto">
-                    <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                      <span>{progressPercent.toFixed(1)}% Paid</span>
-                      <span>{showAmounts ? `${sym}${formatMoney(paidAmount)}` : "••••••"}</span>
+                      <div className="space-y-2 mb-6 mt-auto">
+                        <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+                          <span>{progressPercent.toFixed(1)}% Paid</span>
+                          <span>{showAmounts ? `${sym}${formatMoney(paidAmount)}` : "••••••"}</span>
+                        </div>
+                        <div className="h-2.5 w-full bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full ${fill} rounded-full transition-all duration-1000 ease-out`}
+                            style={{ width: `${progressPercent}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col justify-center items-center mb-6 mt-auto py-4 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-100 dark:border-white/10">
+                       <Repeat className="w-6 h-6 text-slate-300 dark:text-slate-600 mb-2" />
+                       <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Fixed Recurring Cost</p>
                     </div>
-                    <div className="h-2.5 w-full bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full ${fill} rounded-full transition-all duration-1000 ease-out`}
-                        style={{ width: `${progressPercent}%` }}
-                      ></div>
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
+                  <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex items-center justify-between mt-auto">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 text-sm">
                           <Calendar className="w-4 h-4 text-slate-400" />
                           <span className="text-xs">Next: <strong>{loan.nextDate ? new Date(loan.nextDate).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : "Unscheduled"}</strong></span>
                       </div>
-                      {cardInsight && !cardInsight.warning && (
+                      {!isBill && cardInsight && !cardInsight.warning && (
                           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm">
                               <Flag className="w-4 h-4 opacity-70" />
                               <span className="text-[10px] font-bold uppercase tracking-wider">Est. Payoff: {cardInsight.date}</span>
@@ -623,10 +653,10 @@ export default function LoansPage() {
         <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
           <div>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-              {drawerMode === "add" ? "Log New Liability" : drawerMode === "edit" ? "Edit Liability Details" : `${selectedLoan?.name}`}
+              {drawerMode === "add" ? "Log New Obligation" : drawerMode === "edit" ? "Edit Details" : `${selectedLoan?.name}`}
             </h3>
             <p className="text-xs text-slate-500">
-              {drawerMode === "add" ? "Add a new loan to your tracker." : drawerMode === "edit" ? "Update your loan parameters." : "Manage payments and view history."}
+              {drawerMode === "add" ? "Add a new bill or loan to your tracker." : drawerMode === "edit" ? "Update your parameters." : "Manage payments and view history."}
             </p>
           </div>
           <button onClick={() => !isSubmitting && setIsDrawerOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
@@ -655,10 +685,12 @@ export default function LoansPage() {
 
           {drawerMode === "manage" && manageTab === "pay" && selectedLoan && (
             <div className="animate-in fade-in space-y-6">
-              <div className={`p-6 rounded-2xl ${getLoanIcon(selectedLoan.type).bg} ${getLoanIcon(selectedLoan.type).color} text-center`}>
-                <h4 className="font-bold text-lg mb-1">Current Balance</h4>
-                <p className="text-3xl font-bold">{getCurrencySymbol(selectedLoan.currency)}{formatMoney(selectedLoan.currentBalance)}</p>
-              </div>
+              {!isBillType(selectedLoan.type) && (
+                <div className={`p-6 rounded-2xl ${getLoanIcon(selectedLoan.type).bg} ${getLoanIcon(selectedLoan.type).color} text-center`}>
+                  <h4 className="font-bold text-lg mb-1">Current Balance</h4>
+                  <p className="text-3xl font-bold">{getCurrencySymbol(selectedLoan.currency)}{formatMoney(selectedLoan.currentBalance)}</p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Payment Amount</label>
@@ -710,7 +742,7 @@ export default function LoansPage() {
           {(drawerMode === "add" || drawerMode === "edit") && (
             <div className="animate-in fade-in space-y-5">
               
-              {smartInsight && (
+              {!isBillType(addForm.type) && smartInsight && (
                 <div className={`p-4 rounded-xl border ${smartInsight.warning ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20' : 'bg-[var(--color-brand-deep)]/5 dark:bg-[var(--color-brand-deep)]/10 border-[var(--color-brand-deep)]/20'}`}>
                   {smartInsight.warning ? (
                     <div className="flex items-start gap-3 text-red-600 dark:text-red-400">
@@ -733,28 +765,36 @@ export default function LoansPage() {
               )}
 
               <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Liability Name</label>
-                <input type="text" value={addForm.name} onChange={e => setAddForm({...addForm, name: e.target.value})} disabled={isSubmitting} placeholder="e.g. Student Loan, Auto Lease" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Obligation Name</label>
+                <input type="text" value={addForm.name} onChange={e => setAddForm({...addForm, name: e.target.value})} disabled={isSubmitting} placeholder="e.g. Student Loan, Rent, Netflix" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Type</label>
                   <select value={addForm.type} onChange={e => setAddForm({...addForm, type: e.target.value})} disabled={isSubmitting} className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none disabled:opacity-50">
-                    <option value="mortgage">Mortgage</option>
-                    <option value="auto">Auto Loan</option>
-                    <option value="credit">Credit Card</option>
-                    <option value="health">Medical / Health</option>
-                    <option value="gadget">Phone / Gadgets</option>
-                    <option value="education">Student Loan</option>
-                    <option value="bank">Bank Loan</option>
-                    <option value="family">Family / Friends</option>
-                    <option value="personal">Personal / Biz</option>
+                    <optgroup label="Recurring Bills">
+                      <option value="rent">Rent / Mortgage</option>
+                      <option value="utilities">Utilities (Light, Water)</option>
+                      <option value="subscription">Subscriptions</option>
+                      <option value="insurance">Insurance</option>
+                      <option value="taxes">Taxes</option>
+                    </optgroup>
+                    <optgroup label="Debt & Loans">
+                      <option value="auto">Auto Loan</option>
+                      <option value="credit">Credit Card</option>
+                      <option value="health">Medical / Health</option>
+                      <option value="gadget">Phone / Gadgets</option>
+                      <option value="education">Student Loan</option>
+                      <option value="bank">Bank Loan</option>
+                      <option value="family">Family / Friends</option>
+                      <option value="personal">Personal / Biz</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Lender (Opt)</label>
-                  <input type="text" value={addForm.lender} onChange={e => setAddForm({...addForm, lender: e.target.value})} disabled={isSubmitting} placeholder="e.g. Zenith Bank" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Provider/Lender</label>
+                  <input type="text" value={addForm.lender} onChange={e => setAddForm({...addForm, lender: e.target.value})} disabled={isSubmitting} placeholder="Optional" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
                 </div>
               </div>
 
@@ -777,35 +817,40 @@ export default function LoansPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Only show Balance & APR fields if it's a true Debt, hide for fixed bills */}
+              {!isBillType(addForm.type) && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Original Amount</label>
+                      <input type="number" value={addForm.originalAmount} onChange={(e) => setAddForm({...addForm, originalAmount: e.target.value, currentBalance: drawerMode === 'add' ? e.target.value : addForm.currentBalance})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Current Balance</label>
+                      <input type="number" value={addForm.currentBalance} onChange={(e) => setAddForm({...addForm, currentBalance: e.target.value})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Interest Rate (APR)</label>
+                      <div className="relative">
+                        <input type="number" value={addForm.apr} onBlur={handleAprBlur} onChange={(e) => setAddForm({...addForm, apr: e.target.value})} disabled={isSubmitting} placeholder="0.0" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-4 pr-8 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Total Repayment (Opt)</label>
+                      <input type="number" value={addForm.totalRepayment} onBlur={handleTotalRepayBlur} onChange={(e) => setAddForm({...addForm, totalRepayment: e.target.value})} disabled={isSubmitting} placeholder="Auto-calculates" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 text-sm disabled:opacity-50" />
+                    </div>
+                  </div>
+                </>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Original Amount</label>
-                  <input type="number" value={addForm.originalAmount} onChange={(e) => setAddForm({...addForm, originalAmount: e.target.value, currentBalance: drawerMode === 'add' ? e.target.value : addForm.currentBalance})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Current Balance</label>
-                  <input type="number" value={addForm.currentBalance} onChange={(e) => setAddForm({...addForm, currentBalance: e.target.value})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Interest Rate (APR)</label>
-                  <div className="relative">
-                    <input type="number" value={addForm.apr} onBlur={handleAprBlur} onChange={(e) => setAddForm({...addForm, apr: e.target.value})} disabled={isSubmitting} placeholder="0.0" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-4 pr-8 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">%</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Total Repayment (Opt)</label>
-                  <input type="number" value={addForm.totalRepayment} onBlur={handleTotalRepayBlur} onChange={(e) => setAddForm({...addForm, totalRepayment: e.target.value})} disabled={isSubmitting} placeholder="Auto-calculates" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 text-sm disabled:opacity-50" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Payment Frequency</label>
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Frequency</label>
                   <select value={addForm.frequency} onChange={(e) => setAddForm({...addForm, frequency: e.target.value})} disabled={isSubmitting} className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none font-medium disabled:opacity-50">
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
@@ -839,7 +884,7 @@ export default function LoansPage() {
                 className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl font-bold text-white bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] transition-colors shadow-lg shadow-[var(--color-brand-deep)]/20 disabled:opacity-70"
             >
               {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {drawerMode === "add" ? "Save Liability" : drawerMode === "edit" ? "Update Details" : "Confirm Payment"}
+              {drawerMode === "add" ? "Save Obligation" : drawerMode === "edit" ? "Update Details" : "Confirm Payment"}
             </button>
           </div>
         )}
@@ -895,7 +940,6 @@ export default function LoansPage() {
           </div>
         </div>
       )}
-
     </>
   );
 }
