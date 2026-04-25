@@ -56,7 +56,7 @@ export async function getDailyBriefing(userId: string) {
 
         // 4. Call Gemini 3 Flash
         const response = await ai.models.generateContent({
-            model: 'gemini-3.0-flash', 
+            model: 'gemini-2.5-flash', 
             contents: prompt,
             config: {
                 responseMimeType: "application/json",

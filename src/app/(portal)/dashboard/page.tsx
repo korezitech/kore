@@ -323,10 +323,9 @@ export default function DashboardPage() {
             <Loader2 className="w-6 h-6 animate-spin mb-2" />
             <p className="text-xs font-bold animate-pulse">KORE Brain is analyzing your portfolio...</p>
           </div>
-        ) : (
+        ) : aiBriefing.length > 0 ? (
           <ul className="space-y-4 pl-2">
             {aiBriefing.map((item, idx) => {
-              // Map colors dynamically based on the AI's JSON return
               let dotColor = "bg-[var(--color-brand-deep)] shadow-[0_0_8px_var(--color-brand-deep)]";
               if (item.color === "orange") dotColor = "bg-orange-500 shadow-[0_0_8px_#f97316]";
               if (item.color === "emerald") dotColor = "bg-emerald-500 shadow-[0_0_8px_#10b981]";
@@ -341,6 +340,19 @@ export default function DashboardPage() {
               );
             })}
           </ul>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-4">
+             <p className="text-sm text-slate-500 mb-3">AI Briefing failed to load. Check your terminal for errors.</p>
+             <button 
+               onClick={() => {
+                 localStorage.removeItem(`kore_briefing_${userId}_${new Date().toISOString().split('T')[0]}`);
+                 window.location.reload();
+               }}
+               className="text-xs font-bold bg-slate-100 dark:bg-white/10 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors"
+             >
+               Clear Cache & Retry
+             </button>
+          </div>
         )}
       </div>
 
