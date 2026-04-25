@@ -1,32 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { 
   Bot, Send, Paperclip, Mic, Sparkles, TrendingUp, 
-  ShieldCheck, User, Loader2
+  ShieldCheck, User, Loader2, Zap, BrainCircuit, ChevronDown
 } from "lucide-react";
-
-// Initial mock conversation to show off the UI
-const initialMessages = [
-  {
-    id: 1,
-    role: "ai",
-    content: "Welcome back! I'm KORE Brain, your personal financial architect. I have live access to your ₦89.1M in liabilities, your $44k portfolio, and your upcoming milestones. How can we optimize your wealth today?",
-    timestamp: "10:00 AM"
-  },
-  {
-    id: 2,
-    role: "user",
-    content: "If I add an extra ₦50,000 to my Home Mortgage payment every month, how much faster will I pay it off?",
-    timestamp: "10:02 AM"
-  },
-  {
-    id: 3,
-    role: "ai",
-    content: "Great question. Your current mortgage balance is ₦38,500,000 at 8.5% APR with a ₦350,000/mo payment.\n\nIf you increase your payment to **₦400,000/mo**:\n• You will be debt-free **3 years and 4 months earlier**.\n• You will save approximately **₦4,250,000 in total interest**.\n\nWould you like me to update your automated monthly allocation to reflect this new ₦400,000 target?",
-    timestamp: "10:02 AM"
-  }
-];
+import { chatWithKoreBrain } from "@/actions/aiActions";
 
 const quickPrompts = [
   { icon: TrendingUp, text: "Analyze my portfolio risk" },
@@ -35,12 +15,26 @@ const quickPrompts = [
 ];
 
 export default function AIBrainPage() {
-  const [messages, setMessages] = useState(initialMessages);
+  const { data: session } = useSession();
+  const userId = (session?.user as any)?.id;
+
+  const [messages, setMessages] = useState([
+    {
+      id: 1,
+      role: "ai",
+      content: "Welcome to KORE Brain. I am securely connected to your ledger. How can we optimize your wealth today?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  
+  // Model Toggle State
+  const [selectedModel, setSelectedModel] = useState<"gemini-2.5-flash" | "gemini-2.5-pro">("gemini-2.5-flash");
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when messages change
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -49,44 +43,59 @@ export default function AIBrainPage() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const handleSend = (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent, promptOverride?: string) => {
     e?.preventDefault();
-    if (!inputValue.trim()) return;
+    const textToSend = promptOverride || inputValue;
+    if (!textToSend.trim() || !userId) return;
 
-    // Add user message
+    // Add user message to UI
     const newUserMsg = {
       id: Date.now(),
       role: "user",
-      content: inputValue,
+      content: textToSend,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     
-    setMessages(prev => [...prev, newUserMsg]);
+    // We need to pass the conversation history excluding the welcome message if we want, 
+    // but sending the whole history is fine.
+    const updatedHistory = [...messages, newUserMsg];
+    
+    setMessages(updatedHistory);
     setInputValue("");
     setIsTyping(true);
 
-    // Simulate AI thinking and replying
-    setTimeout(() => {
-      const newAIMsg = {
-        id: Date.now() + 1,
-        role: "ai",
-        content: "I've analyzed that request against your current connected accounts. Based on your Cash Flow, this is a highly feasible move. Should I draft a detailed budget breakdown for you?",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, newAIMsg]);
-      setIsTyping(false);
-    }, 2000);
+    // Call the real backend API
+    // We strip out the UI-specific properties (like id, timestamp) to send pure history
+    const apiHistory = updatedHistory.slice(1).map(m => ({ role: m.role, content: m.content }));
+    
+    const result = await chatWithKoreBrain(userId, apiHistory, selectedModel);
+
+    // Add AI response to UI
+    const newAIMsg = {
+      id: Date.now() + 1,
+      role: "ai",
+      content: (result as any).text || "Error: Could not reach KORE Brain.", // <-- Changed this line
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMessages(prev => [...prev, newAIMsg]);
+    setIsTyping(false);
   };
 
-  const handleQuickPrompt = (promptText: string) => {
-    setInputValue(promptText);
+  const clearChat = () => {
+    setMessages([{
+      id: Date.now(),
+      role: "ai",
+      content: "Context cleared. Let's start fresh. What's on your mind?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }]);
   };
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] max-h-[800px] animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
       
       {/* HEADER */}
-      <div className="flex items-center justify-between mb-4 shrink-0">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 shrink-0 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-[var(--color-brand-deep)]/10 flex items-center justify-center text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)]">
             <Bot className="w-6 h-6" />
@@ -98,9 +107,49 @@ export default function AIBrainPage() {
             <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">Powered by advanced financial models.</p>
           </div>
         </div>
-        <button className="hidden md:flex items-center gap-2 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-colors">
-          Clear Context
-        </button>
+        
+        <div className="flex items-center gap-2 relative">
+          {/* MODEL TOGGLE */}
+          <div className="relative">
+            <button 
+               onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+               className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm"
+            >
+               {selectedModel === "gemini-2.5-flash" ? <Zap className="w-4 h-4 text-amber-500" /> : <BrainCircuit className="w-4 h-4 text-purple-500" />}
+               <span className="hidden md:inline">{selectedModel === "gemini-2.5-flash" ? "Flash (Fast)" : "Pro (Deep Reasoning)"}</span>
+               <ChevronDown className="w-4 h-4 opacity-50" />
+            </button>
+
+            {modelDropdownOpen && (
+               <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
+                  <button 
+                     onClick={() => { setSelectedModel("gemini-2.5-flash"); setModelDropdownOpen(false); }} 
+                     className="w-full flex items-center gap-3 text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-slate-700 dark:text-slate-300"
+                  >
+                     <Zap className={`w-4 h-4 ${selectedModel === 'gemini-2.5-flash' ? 'text-amber-500' : 'text-slate-400'}`} />
+                     <div>
+                       <div>Gemini Flash</div>
+                       <div className="text-[10px] text-slate-500 font-normal">Fastest • Good for quick queries</div>
+                     </div>
+                  </button>
+                  <button 
+                     onClick={() => { setSelectedModel("gemini-2.5-pro"); setModelDropdownOpen(false); }}
+                     className="w-full flex items-center gap-3 text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300"
+                  >
+                     <BrainCircuit className={`w-4 h-4 ${selectedModel === 'gemini-2.5-pro' ? 'text-purple-500' : 'text-slate-400'}`} />
+                     <div>
+                       <div>Gemini Pro</div>
+                       <div className="text-[10px] text-slate-500 font-normal">Slower • Complex financial planning</div>
+                     </div>
+                  </button>
+               </div>
+            )}
+          </div>
+
+          <button onClick={clearChat} className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-colors">
+            Clear Context
+          </button>
+        </div>
       </div>
 
       {/* CHAT INTERFACE */}
@@ -128,7 +177,7 @@ export default function AIBrainPage() {
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm' 
                       : 'bg-white dark:bg-[#161B22] border border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300 rounded-tl-sm'
                   }`}>
-                    {/* FIXED: dangerouslySetInnerHTML is properly capitalized */}
+                    {/* Render basic bolding and line breaks */}
                     {msg.content.split('\n').map((line, i) => (
                       <span key={i}>
                         {line.includes('**') ? (
@@ -173,8 +222,9 @@ export default function AIBrainPage() {
             {quickPrompts.map((prompt, idx) => (
               <button 
                 key={idx}
-                onClick={() => handleQuickPrompt(prompt.text)}
-                className="flex items-center gap-1.5 whitespace-nowrap bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:border-[var(--color-brand-deep)]/50 text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                onClick={(e) => handleSend(e, prompt.text)}
+                disabled={isTyping}
+                className="flex items-center gap-1.5 whitespace-nowrap bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:border-[var(--color-brand-deep)]/50 text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
               >
                 <prompt.icon className="w-3 h-3 text-[var(--color-brand-deep)]" />
                 {prompt.text}

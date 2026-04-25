@@ -119,3 +119,55 @@ export async function extractReceiptData(base64Image: string, mimeType: string) 
         return { success: false, error: "Failed to read the document image." };
     }
 }
+
+// --- PHASE 3: KORE BRAIN CHAT ENGINE ---
+import { getUserTransactions } from './transactionActions';
+
+export async function chatWithKoreBrain(userId: string, chatHistory: any[], modelName: string) {
+    try {
+        // 1. Fetch live context silently
+        const [accounts, loans, transactions] = await Promise.all([
+            getUserAccounts(userId),
+            getUserLoans(userId),
+            getUserTransactions(userId)
+        ]);
+
+        // 2. Build the System Prompt (The AI's hidden brain)
+        let systemPrompt = `You are KORE Brain, a highly advanced, premium financial fiduciary AI. You are talking directly to the user.
+        Format your responses beautifully using markdown, bolding, and bullet points to make them highly readable. 
+        Be concise, highly analytical, and confident. Never say "As an AI".
+        
+        HERE IS THE USER'S LIVE FINANCIAL LEDGER:
+        
+        ACCOUNTS:
+        ${(accounts || []).map((a: any) => `- ${a.name} (${a.type}): ${a.currency} ${a.balance}`).join('\n')}
+        
+        LIABILITIES / BILLS:
+        ${(loans || []).map((l: any) => `- ${l.name}: ${l.currency} ${l.payment}/${l.frequency} (Due: ${l.nextDate})`).join('\n')}
+        
+        RECENT TRANSACTIONS (Last 10):
+        ${(transactions || []).slice(0, 10).map((t: any) => `- ${t.date} | ${t.title} | ${t.type === 'income' ? '+' : '-'}${t.currency}${t.amount} (${t.accountName})`).join('\n')}
+        `;
+
+        // 3. Format history for the Gemini SDK
+        const formattedContents = chatHistory.map(msg => ({
+            role: msg.role === 'ai' ? 'model' : 'user', // Translate 'ai' to 'model' for Google's SDK
+            parts: [{ text: msg.content }]
+        }));
+
+        // 4. Call the chosen model (Flash or Pro)
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: formattedContents,
+            config: {
+                systemInstruction: systemPrompt,
+            }
+        });
+
+        return { success: true, text: response.text || "I'm sorry, I couldn't process that request." };
+
+    } catch (error) {
+        console.error("KORE Brain Chat Error:", error);
+        return { success: false, error: "Connection to KORE Brain interrupted." };
+    }
+}
