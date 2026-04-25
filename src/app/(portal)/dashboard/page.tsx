@@ -5,12 +5,14 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { 
   Wallet, TrendingUp, CreditCard, Store, Sparkles, 
-  Receipt, Plane, Wifi, Eye, EyeOff, Loader2, ArrowRightLeft, Coffee, ShoppingBag, Briefcase, Landmark
+  Receipt, Plane, Wifi, Eye, EyeOff, Loader2, ArrowRightLeft, 
+  Coffee, ShoppingBag, Briefcase, Landmark, Calendar
 } from "lucide-react";
 
 import { getUserAccounts } from "@/actions/accountActions";
 import { getUserTransactions } from "@/actions/transactionActions";
 import { getLiveExchangeRates } from "@/actions/currencyActions";
+import { getUserLoans } from "@/actions/loanActions"; // NEW: Fetch obligations
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -22,6 +24,7 @@ export default function DashboardPage() {
   // Live Data States
   const [accounts, setAccounts] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [loans, setLoans] = useState<any[]>([]); // NEW: Store obligations
   const [liveRates, setLiveRates] = useState<any>(null);
   const [isFetching, setIsFetching] = useState(true);
 
@@ -36,20 +39,21 @@ export default function DashboardPage() {
   const loadDashboardData = async () => {
     setIsFetching(true);
     
-    // Fetch Accounts, Transactions, AND Live Rates simultaneously!
-    const [accData, txData, rateData] = await Promise.all([
+    // Fetch Accounts, Transactions, Rates, AND Loans simultaneously!
+    const [accData, txData, rateData, loanData] = await Promise.all([
       getUserAccounts(userId),
       getUserTransactions(userId),
-      getLiveExchangeRates()
+      getLiveExchangeRates(),
+      getUserLoans(userId)
     ]);
     
     setAccounts(accData || []);
     setTransactions(txData || []);
+    setLoans(loanData || []);
     
     if (rateData.success) {
         setLiveRates(rateData.rates);
     } else {
-        // Fallback rates just in case the API ever goes down
         setLiveRates({ NGN: 1200, GBP: 0.79, USD: 1 }); 
     }
     
@@ -68,10 +72,8 @@ export default function DashboardPage() {
   const calculateNetWorth = () => {
     if (!liveRates) return { main: "...", sub: "Calculating..." };
 
-    // 1. Convert everything to a universal base (USD) first for perfect cross-math
     let totalUSD = 0;
     accounts.forEach(acc => {
-      // Intercept credit accounts and treat them as liabilities (negative balance)
       const isLiability = acc.type.toLowerCase() === 'credit';
       const balance = isLiability ? -Math.abs(parseFloat(acc.balance)) : parseFloat(acc.balance);
 
@@ -80,7 +82,6 @@ export default function DashboardPage() {
       if (acc.currency === 'GBP') totalUSD += (balance / liveRates.GBP);
     });
 
-    // 2. Convert base USD into the user's currently selected viewing currency
     let mainValue = 0;
     let subText = "";
 
@@ -98,14 +99,50 @@ export default function DashboardPage() {
       subText = `≈ ${ngnEquivalent < 0 ? '-' : ''}₦${formatBalance(Math.abs(ngnEquivalent))} at live mid-market rate`;
     }
 
-    // 3. Format the main display value cleanly (e.g., -£1,178.16 instead of £-1,178.16)
     const isNegative = mainValue < 0;
     const formattedMain = `${isNegative ? '-' : ''}${currency}${formatBalance(Math.abs(mainValue))}`;
 
     return { main: formattedMain, sub: subText };
   };
 
+  // NEW: Monthly Burn Rate Calculator
+  const calculateMonthlyBurn = () => {
+    if (!liveRates) return { main: "...", upcoming: [] };
+
+    let obligationUSD = 0;
+    const upcomingBills: any[] = [];
+
+    loans.forEach(loan => {
+      const pmt = parseFloat(loan.payment) || 0;
+      let monthlyPmt = pmt;
+      if (loan.frequency === 'weekly') monthlyPmt = pmt * 4.33;
+      if (loan.frequency === 'yearly') monthlyPmt = pmt / 12;
+
+      if (loan.currency === 'USD') obligationUSD += monthlyPmt;
+      if (loan.currency === 'NGN') obligationUSD += (monthlyPmt / liveRates.NGN);
+      if (loan.currency === 'GBP') obligationUSD += (monthlyPmt / liveRates.GBP);
+
+      if (loan.nextDate) {
+        upcomingBills.push(loan);
+      }
+    });
+
+    let totalBurn = 0;
+    if (currency === "₦") totalBurn = obligationUSD * liveRates.NGN;
+    if (currency === "£") totalBurn = obligationUSD * liveRates.GBP;
+    if (currency === "$") totalBurn = obligationUSD;
+
+    // Sort upcoming bills by closest date
+    upcomingBills.sort((a, b) => new Date(a.nextDate).getTime() - new Date(b.nextDate).getTime());
+
+    return {
+      main: `${currency}${formatBalance(totalBurn)}`,
+      upcoming: upcomingBills.slice(0, 3) // Only grab the next 3
+    };
+  };
+
   const netWorthData = calculateNetWorth();
+  const burnData = calculateMonthlyBurn();
 
   const getIconForCategory = (cat: string) => {
     const c = cat?.toLowerCase() || '';
@@ -183,6 +220,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
+            {/* Added whitespace-nowrap here per our fix */}
             <h2 className="text-5xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight transition-all duration-300 whitespace-nowrap">
               {showAmounts ? netWorthData.main : "••••••"}
             </h2>
@@ -268,10 +306,73 @@ export default function DashboardPage() {
           <li className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-white/5 p-3 rounded-xl border border-slate-200/50 dark:border-white/5">
             <div className="w-2 h-2 rounded-full bg-orange-500 mt-1.5 flex-shrink-0 shadow-[0_0_8px_#f97316]"></div>
             <p className="leading-relaxed">
-              <strong className="text-slate-900 dark:text-white">Action required:</strong> You have 2 pending loan repayments due this Friday.
+              <strong className="text-slate-900 dark:text-white">Action required:</strong> You have {burnData.upcoming.length} upcoming obligations. Ensure accounts are funded.
             </p>
           </li>
         </ul>
+      </div>
+
+      {/* NEW: MONTHLY BURN RATE WIDGET */}
+      <div className="glass-panel p-6 relative overflow-hidden flex flex-col md:flex-row gap-6 items-center">
+        <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-rose-500 to-orange-400"></div>
+        
+        {/* Left: Total Monthly Burn */}
+        <div className="w-full md:w-1/2 pl-2">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 bg-rose-500/10 rounded-md">
+              <Calendar className="w-4 h-4 text-rose-500" />
+            </div>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Avg Monthly Burn</h3>
+          </div>
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+            {showAmounts ? burnData.main : "••••••"}
+            <span className="text-lg text-slate-500 font-medium">/mo</span>
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Fixed recurring bills & debt obligations</p>
+        </div>
+
+        {/* Right: Upcoming Timeline */}
+        <div className="w-full md:w-1/2 border-t md:border-t-0 md:border-l border-slate-100 dark:border-white/5 pt-4 md:pt-0 md:pl-6">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Due Next</h4>
+            <Link href="/loans" className="text-xs font-bold text-[var(--color-brand-deep)] hover:underline">Manage</Link>
+          </div>
+          
+          {burnData.upcoming.length === 0 ? (
+            <p className="text-sm text-slate-500 italic py-2">No scheduled bills or liabilities found.</p>
+          ) : (
+            <div className="space-y-3">
+              {burnData.upcoming.map((bill, idx) => {
+                const sym = getCurrencySymbol(bill.currency);
+                const daysAway = Math.ceil((new Date(bill.nextDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                
+                // Color logic based on urgency
+                const isUrgent = daysAway <= 3;
+                const isSoon = daysAway > 3 && daysAway <= 7;
+                const statusColor = isUrgent ? "text-rose-600 bg-rose-100 dark:text-rose-400 dark:bg-rose-500/10" : 
+                                    isSoon   ? "text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-500/10" : 
+                                               "text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10";
+                
+                return (
+                  <div key={idx} className="flex justify-between items-center text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${isUrgent ? 'bg-rose-500 animate-pulse' : isSoon ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">{bill.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {showAmounts ? `${sym}${formatBalance(parseFloat(bill.payment))}` : "•••"}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${statusColor}`}>
+                        {daysAway < 0 ? 'Overdue' : daysAway === 0 ? 'Today' : `In ${daysAway}d`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* BOTTOM ROW: Recent Transactions */}
