@@ -8,19 +8,41 @@ const handler = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        twoFactorCode: { label: "2FA Code", type: "text" } // <-- ADDED THIS SO TYPESCRIPT KNOWS IT EXISTS
+        twoFactorCode: { label: "2FA Code", type: "text" } 
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
 
         try {
-          // Ask our Hostinger backend if the password is correct
+          // --- DEVICE & LOCATION CAPTURE ---
+          const headers = req.headers || {};
+          const userAgent = headers['user-agent'] || 'Unknown Device';
+          const ip = headers['x-forwarded-for'] || headers['x-real-ip'] || 'Unknown IP';
+          
+          // Leverage Vercel's built-in geo-headers
+          const city = headers['x-vercel-ip-city'] || '';
+          const country = headers['x-vercel-ip-country'] || '';
+          const location = city && country ? `${city}, ${country}` : 'Unknown Location';
+
+          // Simplify the User-Agent into a readable device name
+          let deviceName = 'Unknown Device';
+          if (userAgent.includes('Windows')) deviceName = 'Windows PC';
+          else if (userAgent.includes('Macintosh')) deviceName = 'Mac';
+          else if (userAgent.includes('iPhone')) deviceName = 'iPhone';
+          else if (userAgent.includes('iPad')) deviceName = 'iPad';
+          else if (userAgent.includes('Android')) deviceName = 'Android Device';
+          else deviceName = userAgent.split(' ')[0]; // Fallback to raw browser string
+
+          // Ask our Hostinger backend to authenticate
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}?action=login`, {
             method: 'POST',
             body: JSON.stringify({
               email: credentials.email,
               password: credentials.password,
-              twoFactorCode: credentials.twoFactorCode // <-- NOW SAFELY PASSED
+              twoFactorCode: credentials.twoFactorCode,
+              device: deviceName,
+              ip: ip,
+              location: location
             }),
             headers: { 
                 "Content-Type": "application/json",
@@ -40,7 +62,7 @@ const handler = NextAuth({
             return data.user; 
           }
           
-          // If it fails (wrong password, or still pending), throw the error back to the UI
+          // If it fails (wrong password, lockout, or pending), throw the exact PHP error back to the UI
           throw new Error(data.error || "Login failed");
         } catch (error: any) {
           throw new Error(error.message);
@@ -49,10 +71,9 @@ const handler = NextAuth({
     })
   ],
   pages: {
-    signIn: '/login', // Tell NextAuth where our custom login page is
+    signIn: '/login', 
   },
   callbacks: {
-    // This saves the database role (admin/user) into the encrypted cookie
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
@@ -61,7 +82,6 @@ const handler = NextAuth({
       }
       return token;
     },
-    // This makes the role available to your React components
     async session({ session, token }) {
       if (token && session.user) {
         (session.user as any).id = token.id;

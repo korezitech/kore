@@ -5,13 +5,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { 
   Mail, Lock, Key, User, ArrowRight, ShieldCheck, 
-  ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff, RefreshCw 
+  ChevronLeft, Loader2, CheckCircle2, Eye, EyeOff, RefreshCw, AlertCircle
 } from "lucide-react";
-import { redeemInviteToken, resend2FACode } from "@/actions/authActions";
+import { redeemInviteToken, resend2FACode, requestPasswordReset, resetPassword } from "@/actions/authActions";
 import { signIn } from "next-auth/react";
 
 export default function LoginPage() {
-  const [view, setView] = useState<"login" | "redeem" | "success" | "2fa">("login");
+  const [view, setView] = useState<"login" | "redeem" | "success" | "2fa" | "forgot" | "reset">("login");
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -25,6 +25,10 @@ export default function LoginPage() {
   const [twoFactorCode, setTwoFactorCode] = useState(""); 
   const [showPassword, setShowPassword] = useState(false);
   
+  // New States for Password Reset
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
   // Frontend Cooldown Timer
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -56,6 +60,31 @@ export default function LoginPage() {
         setView("success");
       }
     } 
+    else if (view === "forgot") {
+      const result = await requestPasswordReset(email);
+      setIsLoading(false);
+      
+      if (result.success) {
+        setView("reset");
+        setSuccessMessage("A 6-digit reset code has been sent to your email.");
+      } else {
+        setErrorMessage(result.error || "Failed to request reset.");
+      }
+    }
+    else if (view === "reset") {
+      const result = await resetPassword(email, resetCode, newPassword);
+      setIsLoading(false);
+
+      if (result.success) {
+        setView("login");
+        setSuccessMessage("Password reset successfully! You can now log in.");
+        setResetCode("");
+        setNewPassword("");
+        setPassword("");
+      } else {
+        setErrorMessage(result.error || "Failed to reset password.");
+      }
+    }
     else if (view === "2fa") {
       const result = await signIn("credentials", {
         redirect: false,
@@ -73,6 +102,7 @@ export default function LoginPage() {
       }
     } 
     else {
+      // Standard Login Flow
       const result = await signIn("credentials", {
         redirect: false,
         email: email,
@@ -85,7 +115,7 @@ export default function LoginPage() {
         if (result.error === "2FA_REQUIRED") {
           setView("2fa");
           setErrorMessage(""); 
-          setResendCooldown(60); // Start 60s cooldown immediately
+          setResendCooldown(60);
         } else {
           setErrorMessage(result.error);
         }
@@ -95,7 +125,6 @@ export default function LoginPage() {
     }
   };
 
-  // --- NEW RESEND LOGIC ---
   const handleResendCode = async () => {
     setIsResending(true);
     setErrorMessage("");
@@ -106,7 +135,7 @@ export default function LoginPage() {
     setIsResending(false);
     if (result.success) {
       setSuccessMessage("A new code has been sent to your email.");
-      setResendCooldown(60); // Reset the 60-second local timer
+      setResendCooldown(60); 
     } else {
       setErrorMessage(result.error || "Failed to resend code.");
     }
@@ -132,11 +161,12 @@ export default function LoginPage() {
 
         {view !== "success" ? (
           <>
+            {/* ONLY SHOW LOGIN/REDEEM TABS IF NOT IN 2FA OR RECOVERY MODES */}
             {(view === "login" || view === "redeem") && (
               <div className="flex bg-slate-100 dark:bg-white/5 p-1 rounded-xl mb-8 border border-slate-200 dark:border-white/5">
                 <button 
                   type="button"
-                  onClick={() => { setView('login'); setErrorMessage(''); }} 
+                  onClick={() => { setView('login'); setErrorMessage(''); setSuccessMessage(''); }} 
                   className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
                     view === 'login' 
                       ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
@@ -147,7 +177,7 @@ export default function LoginPage() {
                 </button>
                 <button 
                   type="button"
-                  onClick={() => { setView('redeem'); setErrorMessage(''); }} 
+                  onClick={() => { setView('redeem'); setErrorMessage(''); setSuccessMessage(''); }} 
                   className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
                     view === 'redeem' 
                       ? 'bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] shadow-sm' 
@@ -161,6 +191,7 @@ export default function LoginPage() {
 
             <form onSubmit={handleAction} className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
               
+              {/* REDEEM TOKEN VIEW */}
               {view === 'redeem' && (
                 <>
                   <div>
@@ -196,8 +227,21 @@ export default function LoginPage() {
                 </>
               )}
 
-              {(view === "login" || view === "redeem") && (
+              {/* SHARED EMAIL INPUT FOR LOGIN, REDEEM, AND FORGOT PASSWORD */}
+              {(view === "login" || view === "redeem" || view === "forgot") && (
                 <>
+                  {view === "forgot" && (
+                    <div className="text-center mb-6 animate-in zoom-in-95">
+                      <div className="w-16 h-16 rounded-full bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] flex items-center justify-center mx-auto mb-4">
+                        <AlertCircle className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">Reset Password</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                        Enter your registered email address and we'll send you a secure 6-digit recovery code.
+                      </p>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
                     <div className="relative">
@@ -213,37 +257,45 @@ export default function LoginPage() {
                       />
                     </div>
                   </div>
-
-                  {view === 'login' && (
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Password</label>
-                        <button type="button" className="text-xs font-bold text-[var(--color-brand-deep)] hover:underline">Forgot?</button>
-                      </div>
-                      <div className="relative">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input 
-                          type={showPassword ? "text" : "password"}
-                          name="password"
-                          required
-                          placeholder="••••••••"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors focus:outline-none"
-                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
 
+              {/* LOGIN ONLY - PASSWORD INPUT */}
+              {view === 'login' && (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Password</label>
+                    <button 
+                      type="button" 
+                      onClick={() => { setView('forgot'); setErrorMessage(''); setSuccessMessage(''); }}
+                      className="text-xs font-bold text-[var(--color-brand-deep)] hover:underline focus:outline-none"
+                    >
+                      Forgot?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input 
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      required
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 2FA VIEW */}
               {view === "2fa" && (
                 <div className="space-y-4 animate-in zoom-in-95 duration-300">
                   <div className="text-center mb-6">
@@ -251,7 +303,7 @@ export default function LoginPage() {
                       <ShieldCheck className="w-8 h-8" />
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white">Two-Factor Auth</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
                       Please enter the 6-digit security code sent to your registered email address.
                     </p>
                   </div>
@@ -272,6 +324,58 @@ export default function LoginPage() {
                 </div>
               )}
 
+              {/* RESET PASSWORD VIEW */}
+              {view === "reset" && (
+                <div className="space-y-5 animate-in zoom-in-95 duration-300">
+                  <div className="text-center mb-6">
+                    <div className="w-16 h-16 rounded-full bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] flex items-center justify-center mx-auto mb-4">
+                      <Lock className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Create New Password</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                      Enter the 6-digit code sent to your email and your new secure password.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Reset Code</label>
+                    <div className="relative">
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="000000"
+                        value={resetCode}
+                        onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-[0.25em] font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">New Password</label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        type={showPassword ? "text" : "password"}
+                        required
+                        placeholder="••••••••"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-10 pr-12 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal" 
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[var(--color-brand-deep)] transition-colors focus:outline-none"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Dynamic Messaging */}
               {errorMessage && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
@@ -284,6 +388,7 @@ export default function LoginPage() {
                 </div>
               )}
 
+              {/* SUBMIT BUTTONS */}
               <div className="pt-2">
                 <button 
                   type="submit" 
@@ -294,28 +399,43 @@ export default function LoginPage() {
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <>
-                      {view === 'login' ? 'Authenticate Session' : view === 'redeem' ? 'Request Activation' : 'Verify Code'}
+                      {view === 'login' ? 'Authenticate Session' : 
+                       view === 'redeem' ? 'Request Activation' : 
+                       view === 'forgot' ? 'Request Reset Link' :
+                       view === 'reset' ? 'Update Password' :
+                       'Verify Code'}
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
 
-                {view === '2fa' && (
+                {/* EXTRA BUTTONS FOR 2FA & RECOVERY */}
+                {(view === '2fa' || view === 'forgot' || view === 'reset') && (
                   <div className="flex flex-col gap-2 mt-4">
-                    <button
-                      type="button"
-                      disabled={isResending || resendCooldown > 0}
-                      onClick={handleResendCode}
-                      className="w-full flex items-center justify-center gap-2 text-sm font-bold text-[var(--color-brand-deep)] hover:text-[var(--color-brand-light)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                      {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
-                    </button>
+                    
+                    {view === '2fa' && (
+                      <button
+                        type="button"
+                        disabled={isResending || resendCooldown > 0}
+                        onClick={handleResendCode}
+                        className="w-full flex items-center justify-center gap-2 text-sm font-bold text-[var(--color-brand-deep)] hover:text-[var(--color-brand-light)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        {resendCooldown > 0 ? `Resend Code (${resendCooldown}s)` : 'Resend Code'}
+                      </button>
+                    )}
                     
                     <button
                       type="button"
                       disabled={isLoading}
-                      onClick={() => { setView("login"); setTwoFactorCode(""); setErrorMessage(""); setSuccessMessage(""); }}
+                      onClick={() => { 
+                        setView("login"); 
+                        setTwoFactorCode(""); 
+                        setResetCode("");
+                        setNewPassword("");
+                        setErrorMessage(""); 
+                        setSuccessMessage(""); 
+                      }}
                       className="w-full flex items-center justify-center text-sm font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors py-2"
                     >
                       Cancel & Return to Login
