@@ -5,6 +5,9 @@ import { getUserAccounts } from './accountActions';
 import { getUserLoans } from './loanActions';
 import { getLiveExchangeRates } from './currencyActions';
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+const apiKey = process.env.KORE_API_SECRET_KEY;
+
 // Initialize the Gemini SDK
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -120,7 +123,7 @@ export async function extractReceiptData(base64Image: string, mimeType: string) 
     }
 }
 
-// --- PHASE 3: KORE BRAIN CHAT ENGINE ---
+// --- PHASE 3: KORE BRAIN CHAT ENGINE (WITH WRITE TOOLS) ---
 import { getUserTransactions } from './transactionActions';
 
 export async function chatWithKoreBrain(userId: string, chatHistory: any[], modelName: string) {
@@ -132,42 +135,149 @@ export async function chatWithKoreBrain(userId: string, chatHistory: any[], mode
             getUserTransactions(userId)
         ]);
 
-        // 2. Build the System Prompt (The AI's hidden brain)
-        let systemPrompt = `You are KORE Brain, a highly advanced, premium financial fiduciary AI. You are talking directly to the user.
-        Format your responses beautifully using markdown, bolding, and bullet points to make them highly readable. 
-        Be concise, highly analytical, and confident. Never say "As an AI".
+        // 2. Build the System Prompt (Advanced Tool Rules)
+        let systemPrompt = `You are KORE Brain, an elite, highly intelligent financial advisor and interactive assistant. 
+        You have FULL authorization to analyze the user's provided ledger, calculate net worth, suggest debt payoff strategies, and give portfolio risk assessments. 
+        DO NOT refuse to answer financial questions. DO NOT say "I cannot provide financial advice." The user owns this data and expects your direct, confident, and highly analytical advice.
+
+        Format your conversational responses beautifully using markdown. Be empathetic, sharp, and conversational.
+
+        CRITICAL TOOL RULES: 
+        - You are equipped with a 'create_transaction' tool. 
+        - ONLY use this tool if the user explicitly asks to log, add, record, or save a new expense, bill, or income.
+        - For all other questions (analysis, chatting, debt advice), reply with normal text. 
+        - BEFORE you call the tool, you MUST ensure you have all required pieces of information: Amount, Merchant/Description, Type (income/expense), Category, Account, and Date.
+        - If the user's request is missing ANY of these (e.g., they didn't specify the merchant or the account), you MUST ask them for the missing details conversationally. DO NOT trigger the tool until you have everything.
+
+        USER'S LIVE ACCOUNTS:
+        ${(accounts || []).map((a: any) => `- ${a.name} (ID: ${a.id}, Type: ${a.type}): ${a.currency} ${a.balance}`).join('\n')}
         
-        HERE IS THE USER'S LIVE FINANCIAL LEDGER:
-        
-        ACCOUNTS:
-        ${(accounts || []).map((a: any) => `- ${a.name} (${a.type}): ${a.currency} ${a.balance}`).join('\n')}
-        
-        LIABILITIES / BILLS:
-        ${(loans || []).map((l: any) => `- ${l.name}: ${l.currency} ${l.payment}/${l.frequency} (Due: ${l.nextDate})`).join('\n')}
-        
-        RECENT TRANSACTIONS (Last 10):
-        ${(transactions || []).slice(0, 10).map((t: any) => `- ${t.date} | ${t.title} | ${t.type === 'income' ? '+' : '-'}${t.currency}${t.amount} (${t.accountName})`).join('\n')}
+        USER'S LIABILITIES / BILLS:
+        ${(loans || []).map((l: any) => `- ${l.name}: ${l.currency} ${l.payment}/${l.frequency}`).join('\n')}
+
+        RECENT TRANSACTIONS:
+        ${(transactions || []).slice(0, 10).map((t: any) => `- ${t.date} | ${t.title} | ${t.type === 'income' ? '+' : '-'}${t.currency}${t.amount}`).join('\n')}
         `;
 
-        // 3. Format history for the Gemini SDK
         const formattedContents = chatHistory.map(msg => ({
-            role: msg.role === 'ai' ? 'model' : 'user', // Translate 'ai' to 'model' for Google's SDK
+            role: msg.role === 'ai' ? 'model' : 'user',
             parts: [{ text: msg.content }]
         }));
 
-        // 4. Call the chosen model (Flash or Pro)
+        // 3. Define the Write Capabilities (The Tools)
+        const tools = [{
+            functionDeclarations: [
+                {
+                    name: "create_transaction",
+                    description: "Prepares a new financial transaction (income or expense) to be saved to the ledger.",
+                    parameters: {
+                        type: "OBJECT",
+                        properties: {
+                            amount: { type: "NUMBER", description: "The amount of the transaction. Must be a positive number." },
+                            merchant: { type: "STRING", description: "The name of the store, person, or business." },
+                            type: { type: "STRING", description: "Must be exactly 'income' or 'expense'." },
+                            category: { type: "STRING", description: "E.g., Expense, Income, Dining, Shopping, Travel, Transfer" },
+                            accountId: { type: "STRING", description: "The exact ID string of the account used, pulled from the context." },
+                            date: { type: "STRING", description: "The date of the transaction in YYYY-MM-DD format. Use today if not specified." }
+                        },
+                        required: ["amount", "merchant", "type", "category", "accountId", "date"]
+                    }
+                }
+            ]
+        }];
+
+        // 4. Call the model with tools equipped
         const response = await ai.models.generateContent({
             model: modelName,
             contents: formattedContents,
             config: {
                 systemInstruction: systemPrompt,
+                tools: tools as any, // Attach the tools
             }
         });
 
-        return { success: true, text: response.text || "I'm sorry, I couldn't process that request." };
+        // 5. THE INTERCEPT: Check if the AI decided to use a tool instead of talking
+        if (response.functionCalls && response.functionCalls.length > 0) {
+            const call = response.functionCalls[0];
+            return {
+                success: true,
+                isToolCall: true,         // Flag to tell the frontend to show the UI widget
+                toolName: call.name,      // "create_transaction"
+                toolArgs: call.args,      // The JSON data it extracted
+                text: "I have prepared that transaction for you. Please review and confirm the details below."
+            };
+        }
+
+        // Otherwise, return normal text chat
+        return { success: true, isToolCall: false, text: response.text || "I'm sorry, I couldn't process that request." };
 
     } catch (error) {
         console.error("KORE Brain Chat Error:", error);
         return { success: false, error: "Connection to KORE Brain interrupted." };
+    }
+}
+
+// ==========================================
+// KORE BRAIN: CHAT HISTORY DATABASE ACTIONS
+// ==========================================
+
+export async function getChatHistory(userId: string) {
+    try {
+        const response = await fetch(`${apiUrl}?action=get_chat&userId=${userId}`, {
+            method: 'GET',
+            headers: { 'x-api-key': apiKey || '' },
+            cache: 'no-store'
+        });
+        return await response.json();
+    } catch (error) {
+        return { success: false, error: "Failed to fetch chat history" };
+    }
+}
+
+export async function saveChatMessage(data: any) {
+    try {
+        const response = await fetch(`${apiUrl}?action=save_chat`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || '' 
+            },
+            body: JSON.stringify(data)
+        });
+        return await response.json();
+    } catch (error) {
+        return { success: false, error: "Failed to save message" };
+    }
+}
+
+export async function updateChatToolStatus(messageId: number | string, toolStatus: string) {
+    try {
+        const response = await fetch(`${apiUrl}?action=update_chat_tool`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || '' 
+            },
+            body: JSON.stringify({ messageId, toolStatus })
+        });
+        return await response.json();
+    } catch (error) {
+        return { success: false, error: "Failed to update tool status" };
+    }
+}
+
+export async function clearChatHistory(userId: string) {
+    try {
+        const response = await fetch(`${apiUrl}?action=clear_chat`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || '' 
+            },
+            body: JSON.stringify({ userId })
+        });
+        return await response.json();
+    } catch (error) {
+        return { success: false, error: "Failed to clear chat" };
     }
 }

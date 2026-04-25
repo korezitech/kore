@@ -4,9 +4,16 @@ import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Bot, Send, Paperclip, Mic, Sparkles, TrendingUp, 
-  ShieldCheck, User, Loader2, Zap, BrainCircuit, ChevronDown
+  ShieldCheck, User, Loader2, Zap, BrainCircuit, ChevronDown, CheckCircle2
 } from "lucide-react";
-import { chatWithKoreBrain } from "@/actions/aiActions";
+import { 
+  chatWithKoreBrain, 
+  getChatHistory, 
+  saveChatMessage, 
+  updateChatToolStatus, 
+  clearChatHistory 
+} from "@/actions/aiActions";
+import { createTransaction } from "@/actions/transactionActions";
 
 const quickPrompts = [
   { icon: TrendingUp, text: "Analyze my portfolio risk" },
@@ -18,18 +25,12 @@ export default function AIBrainPage() {
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id;
 
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      role: "ai",
-      content: "Welcome to KORE Brain. I am securely connected to your ledger. How can we optimize your wealth today?",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isExecutingTool, setIsExecutingTool] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   
-  // Model Toggle State
   const [selectedModel, setSelectedModel] = useState<"gemini-2.5-flash" | "gemini-2.5-pro">("gemini-2.5-flash");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
@@ -39,56 +40,139 @@ export default function AIBrainPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // 1. Load History from Database on Mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!userId) return;
+      setIsLoadingHistory(true);
+      const res = await getChatHistory(userId);
+      
+      if (res.success && res.messages && res.messages.length > 0) {
+        setMessages(res.messages);
+      } else {
+        // First time user: Show welcome message (not saved to DB to keep it clean)
+        setMessages([{
+          id: 'welcome',
+          role: "ai",
+          content: "Welcome to KORE Brain. I am securely connected to your ledger. How can we optimize your wealth today?",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      }
+      setIsLoadingHistory(false);
+    };
+    
+    loadHistory();
+  }, [userId]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
 
+  // 2. Handle Chat Send & Database Saving
   const handleSend = async (e?: React.FormEvent, promptOverride?: string) => {
     e?.preventDefault();
     const textToSend = promptOverride || inputValue;
     if (!textToSend.trim() || !userId) return;
 
-    // Add user message to UI
+    // Temporary ID for UI
+    const tempUserId = Date.now();
     const newUserMsg = {
-      id: Date.now(),
+      id: tempUserId,
       role: "user",
       content: textToSend,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     
-    // We need to pass the conversation history excluding the welcome message if we want, 
-    // but sending the whole history is fine.
     const updatedHistory = [...messages, newUserMsg];
-    
     setMessages(updatedHistory);
     setInputValue("");
     setIsTyping(true);
 
-    // Call the real backend API
-    // We strip out the UI-specific properties (like id, timestamp) to send pure history
-    const apiHistory = updatedHistory.slice(1).map(m => ({ role: m.role, content: m.content }));
-    
+    // Save User Msg to DB asynchronously
+    saveChatMessage({ userId, role: 'user', content: textToSend });
+
+    // Format history for Gemini (excluding the fake welcome message)
+    const apiHistory = updatedHistory.filter(m => m.id !== 'welcome').map(m => {
+        let text = m.content;
+        if (m.isToolCall && m.toolStatus === 'success') {
+            text += `\n[SYSTEM NOTE: The tool '${m.toolName}' was successfully executed. Do not call it again for this specific request.]`;
+        }
+        return { role: m.role, content: text };
+    });
+
     const result = await chatWithKoreBrain(userId, apiHistory, selectedModel);
 
-    // Add AI response to UI
+    const tempAiId = Date.now() + 1;
     const newAIMsg = {
-      id: Date.now() + 1,
+      id: tempAiId,
       role: "ai",
-      content: (result as any).text || "Error: Could not reach KORE Brain.", // <-- Changed this line
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      content: result.success ? (result as any).text : "Error: Could not reach KORE Brain.",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isToolCall: (result as any).isToolCall,
+      toolName: (result as any).toolName,
+      toolArgs: (result as any).toolArgs,
+      toolStatus: (result as any).isToolCall ? 'pending' : undefined
     };
 
+    // Update UI immediately
     setMessages(prev => [...prev, newAIMsg]);
     setIsTyping(false);
+
+    // Save AI response to DB, and get the REAL Database ID back
+    if (result.success) {
+        const dbSave = await saveChatMessage({
+            userId,
+            role: 'ai',
+            content: newAIMsg.content,
+            isToolCall: newAIMsg.isToolCall,
+            toolName: newAIMsg.toolName,
+            toolArgs: newAIMsg.toolArgs,
+            toolStatus: newAIMsg.toolStatus
+        });
+
+        // Swap the temp ID for the real Database ID so tool updates work
+        if (dbSave.success && dbSave.messageId) {
+            setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, id: dbSave.messageId } : m));
+        }
+    }
   };
 
-  const clearChat = () => {
+  // 3. Handle Tool Execution & Database Updating
+  const handleExecuteTool = async (msgId: number | string, args: any) => {
+    if (!userId) return;
+    setIsExecutingTool(true);
+
+    const res = await createTransaction({
+      userId, accountId: args.accountId, title: args.merchant, category: args.category,
+      amount: parseFloat(args.amount), type: args.type, date: args.date, status: 'completed'
+    });
+
+    if (res.success) {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, toolStatus: 'success' } : m));
+      await updateChatToolStatus(msgId, 'success');
+    } else {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, toolStatus: 'error' } : m));
+      await updateChatToolStatus(msgId, 'error');
+      alert("Failed to save transaction to ledger.");
+    }
+    setIsExecutingTool(false);
+  };
+
+  const handleCancelTool = async (msgId: number | string) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, toolStatus: 'cancelled' } : m));
+    await updateChatToolStatus(msgId, 'cancelled');
+  };
+
+  // 4. Handle Wiping the Database
+  const clearChat = async () => {
+    if (!userId) return;
     setMessages([{
-      id: Date.now(),
+      id: 'welcome',
       role: "ai",
       content: "Context cleared. Let's start fresh. What's on your mind?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }]);
+    await clearChatHistory(userId);
   };
 
   return (
@@ -109,7 +193,6 @@ export default function AIBrainPage() {
         </div>
         
         <div className="flex items-center gap-2 relative">
-          {/* MODEL TOGGLE */}
           <div className="relative">
             <button 
                onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
@@ -133,7 +216,7 @@ export default function AIBrainPage() {
                      </div>
                   </button>
                   <button 
-                     onClick={() => { setSelectedModel("gemini-2.5-pro"); setModelDropdownOpen(false); }}
+                     onClick={() => { setSelectedModel("gemini-2.5-pro"); setModelDropdownOpen(false); }} 
                      className="w-full flex items-center gap-3 text-left px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300"
                   >
                      <BrainCircuit className={`w-4 h-4 ${selectedModel === 'gemini-2.5-pro' ? 'text-purple-500' : 'text-slate-400'}`} />
@@ -157,46 +240,93 @@ export default function AIBrainPage() {
         
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 scroll-smooth">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex gap-3 max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                
-                {/* Avatar */}
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm ${
-                  msg.role === 'ai' 
-                    ? 'bg-gradient-to-br from-[var(--color-brand-deep)] to-[var(--color-brand-light)] text-white' 
-                    : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300'
-                }`}>
-                  {msg.role === 'ai' ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
-                </div>
+          {isLoadingHistory ? (
+             <div className="flex items-center justify-center h-full text-slate-400 gap-2">
+                 <Loader2 className="w-5 h-5 animate-spin" /> Loading memory...
+             </div>
+          ) : (
+            <>
+              {messages.map((msg) => (
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`flex gap-3 w-full max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                    
+                    {/* Avatar */}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm ${
+                      msg.role === 'ai' 
+                        ? 'bg-gradient-to-br from-[var(--color-brand-deep)] to-[var(--color-brand-light)] text-white' 
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300'
+                    }`}>
+                      {msg.role === 'ai' ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                    </div>
 
-                {/* Message Bubble */}
-                <div className="flex flex-col gap-1">
-                  <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                    msg.role === 'user' 
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm' 
-                      : 'bg-white dark:bg-[#161B22] border border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300 rounded-tl-sm'
-                  }`}>
-                    {/* Render basic bolding and line breaks */}
-                    {msg.content.split('\n').map((line, i) => (
-                      <span key={i}>
-                        {line.includes('**') ? (
-                          <span dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
-                        ) : line}
-                        {i !== msg.content.split('\n').length - 1 && <br />}
+                    {/* Message Bubble */}
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm break-words ${
+                        msg.role === 'user' 
+                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm' 
+                          : 'bg-white dark:bg-[#161B22] border border-slate-100 dark:border-white/5 text-slate-700 dark:text-slate-300 rounded-tl-sm'
+                      }`}>
+                        {msg.content.split('\n').map((line: string, i: number) => (
+                          <span key={i}>
+                            {line.includes('**') ? (
+                              <span dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                            ) : line}
+                            {i !== msg.content.split('\n').length - 1 && <br />}
+                          </span>
+                        ))}
+
+                        {/* Interactive Tool Widget */}
+                        {msg.isToolCall && msg.toolName === "create_transaction" && msg.toolArgs && (
+                          <div className="mt-4 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-inner">
+                             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Draft Transaction</h4>
+                             <div className="space-y-2 mb-4 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-white/5">
+                                <div className="flex justify-between text-sm"><span className="text-slate-500">Merchant</span><span className="font-semibold text-slate-900 dark:text-white break-all ml-4">{msg.toolArgs.merchant}</span></div>
+                                <div className="flex justify-between text-sm"><span className="text-slate-500">Amount</span><span className="font-bold text-[var(--color-brand-deep)]">{msg.toolArgs.amount}</span></div>
+                                <div className="flex justify-between text-sm"><span className="text-slate-500">Type</span><span className="capitalize font-medium text-slate-900 dark:text-white">{msg.toolArgs.type}</span></div>
+                                <div className="flex justify-between text-sm"><span className="text-slate-500">Category</span><span className="text-slate-900 dark:text-white text-right ml-4 break-words">{msg.toolArgs.category}</span></div>
+                                <div className="flex justify-between text-sm"><span className="text-slate-500">Date</span><span className="text-slate-900 dark:text-white">{msg.toolArgs.date}</span></div>
+                             </div>
+                             
+                             {msg.toolStatus === 'pending' ? (
+                                <div className="flex gap-2">
+                                   <button 
+                                     onClick={() => handleExecuteTool(msg.id, msg.toolArgs)} 
+                                     disabled={isExecutingTool}
+                                     className="flex-1 flex justify-center items-center bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 shadow-sm"
+                                   >
+                                     {isExecutingTool ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm & Save"}
+                                   </button>
+                                   <button 
+                                     onClick={() => handleCancelTool(msg.id)} 
+                                     disabled={isExecutingTool}
+                                     className="flex-1 bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 py-2 rounded-lg text-sm font-bold transition-colors"
+                                   >
+                                     Cancel
+                                   </button>
+                                </div>
+                             ) : msg.toolStatus === 'success' ? (
+                                <div className="flex justify-center items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-bold py-2.5 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg border border-emerald-200 dark:border-emerald-500/20">
+                                   <CheckCircle2 className="w-4 h-4" /> Saved to Ledger
+                                </div>
+                             ) : (
+                                <div className="flex justify-center items-center gap-2 text-slate-500 text-sm font-bold py-2.5 bg-slate-100 dark:bg-white/5 rounded-lg">
+                                   Cancelled
+                                </div>
+                             )}
+                          </div>
+                        )}
+                      </div>
+                      <span className={`text-[10px] text-slate-400 font-medium ${msg.role === 'user' ? 'text-right pr-1' : 'text-left pl-1'}`}>
+                        {msg.timestamp}
                       </span>
-                    ))}
+                    </div>
+
                   </div>
-                  <span className={`text-[10px] text-slate-400 font-medium ${msg.role === 'user' ? 'text-right pr-1' : 'text-left pl-1'}`}>
-                    {msg.timestamp}
-                  </span>
                 </div>
+              ))}
+            </>
+          )}
 
-              </div>
-            </div>
-          ))}
-
-          {/* Typing Indicator */}
           {isTyping && (
              <div className="flex justify-start">
                <div className="flex gap-3 max-w-[85%]">
@@ -216,8 +346,6 @@ export default function AIBrainPage() {
 
         {/* INPUT DOCK */}
         <div className="p-4 bg-slate-50/80 dark:bg-black/20 border-t border-slate-100 dark:border-white/5 backdrop-blur-md">
-          
-          {/* Quick Prompts */}
           <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-3 pb-1">
             {quickPrompts.map((prompt, idx) => (
               <button 
@@ -232,7 +360,6 @@ export default function AIBrainPage() {
             ))}
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSend} className="relative flex items-end gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-[var(--color-brand-deep)]/50 transition-all">
             <button type="button" className="p-2 text-slate-400 hover:text-[var(--color-brand-deep)] hover:bg-slate-50 dark:hover:bg-white/5 rounded-xl transition-colors shrink-0">
               <Paperclip className="w-5 h-5" />
