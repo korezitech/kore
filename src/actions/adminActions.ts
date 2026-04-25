@@ -152,3 +152,24 @@ export async function deleteToken(tokenId: string) {
         return { success: false, error: "Network error" };
     }
 }
+
+// --- NEW: Edit User Action ---
+export async function editUser(userData: { userId: string, name: string, email: string, phone: string, role: string, tier: string }) {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiKey = process.env.KORE_API_SECRET_KEY;
+    try {
+        const response = await fetch(`${apiUrl}?action=edit_user`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey || ''
+            },
+            body: JSON.stringify(userData)
+        });
+        const data = await response.json();
+        if (data.error) return { success: false, error: data.error };
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: "Network error" };
+    }
+}

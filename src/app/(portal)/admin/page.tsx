@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { 
   Users, Activity, ShieldCheck, ArrowUpRight, Search, 
-  Filter, Download, AlertCircle, Database, 
-  Server, Key, Copy, MessageCircle, UserCheck, UserX, Trash2, X, Loader2, CheckCircle2, Mail, Ticket, AlertTriangle 
+  Filter, Download, AlertCircle, Server, Key, Copy, 
+  MessageCircle, UserCheck, UserX, Trash2, X, Loader2, 
+  CheckCircle2, Mail, Ticket, AlertTriangle, Edit3, Save
 } from "lucide-react";
 import { 
   getPendingUsers, 
@@ -14,10 +15,10 @@ import {
   deactivateUser, 
   deleteUser,
   getAllTokens, 
-  deleteToken   
+  deleteToken,
+  editUser
 } from "@/actions/adminActions";
 
-// Custom type for our new Confirm Modal
 type ConfirmConfig = {
   title: string;
   message: string;
@@ -27,11 +28,18 @@ type ConfirmConfig = {
   onConfirm: () => Promise<void>;
 };
 
+// NEW: Feedback Modal Type
+type FeedbackConfig = {
+  isOpen: boolean;
+  type: 'success' | 'error';
+  message: string;
+};
+
 export default function AdminPanelPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "system" | "tokens">("users");
   
-  // Status Filter States
+  // Status Filters
   const [statusFilter, setStatusFilter] = useState<"All" | "active" | "pending" | "inactive">("All");
   const [tokenStatusFilter, setTokenStatusFilter] = useState<"All" | "unused" | "used">("All");
 
@@ -54,27 +62,31 @@ export default function AdminPanelPage() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [manageView, setManageView] = useState<"actions" | "edit">("actions");
   
-  // Custom Confirm Modal State
+  // Edit Form State
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', role: '', tier: '' });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Confirmation & Feedback Modal States
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackConfig>({ isOpen: false, type: 'success', message: '' });
 
   // Action States
   const [isActivating, setIsActivating] = useState(false);
   const [newPassword, setNewPassword] = useState("");
 
-  // Load real data on page load
+  // Helper to trigger the beautiful success/error modal
+  const showFeedback = (type: 'success' | 'error', message: string) => {
+    setFeedbackModal({ isOpen: true, type, message });
+  };
+
   useEffect(() => {
     async function loadData() {
       setIsLoadingUsers(true);
       setIsLoadingTokens(true);
-      
       try {
-        const [users, tokens] = await Promise.all([
-          getPendingUsers(),
-          getAllTokens() 
-        ]);
-        
+        const [users, tokens] = await Promise.all([ getPendingUsers(), getAllTokens() ]);
         setRealUsers(users || []);
         setRealTokens(tokens || []);
       } catch (error) {
@@ -97,34 +109,33 @@ export default function AdminPanelPage() {
     { id: 4, label: "Active Tokens", value: activeTokensCount.toString(), change: "Ready to use", isPositive: true, icon: Ticket, color: "text-emerald-500", bg: "bg-emerald-500/10" },
   ];
 
-  // Filter Logic (Users)
   const filteredUsers = realUsers.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) || user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "All" || user.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  // Filter Logic (Tokens)
   const filteredTokens = realTokens.filter(token => {
     const matchesSearch = token.token.toLowerCase().includes(searchQuery.toLowerCase()) || (token.usedByEmail && token.usedByEmail.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesStatus = tokenStatusFilter === "All" || token.status === tokenStatusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  // Export Handler
   const handleExport = () => {
     if (activeTab === 'users') {
-      if (filteredUsers.length === 0) return alert("No users to export.");
-      const headers = ["ID,Name,Email,Status,Date Joined"];
-      const rows = filteredUsers.map(u => `${u.id},${u.name},${u.email},${u.status || 'pending'},${new Date(u.createdAt).toLocaleDateString()}`);
+      if (filteredUsers.length === 0) return showFeedback('error', "No users available to export.");
+      const headers = ["ID,Name,Email,Phone,Role,Tier,Status,Date Joined"];
+      const rows = filteredUsers.map(u => `${u.id},${u.name},${u.email},${u.phone || 'N/A'},${u.role},${u.tier},${u.status || 'pending'},${new Date(u.createdAt).toLocaleDateString()}`);
       const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
       downloadCSV(csvContent, "kore_users_export.csv");
+      showFeedback('success', "User list exported successfully.");
     } else if (activeTab === 'tokens') {
-      if (filteredTokens.length === 0) return alert("No tokens to export.");
+      if (filteredTokens.length === 0) return showFeedback('error', "No tokens available to export.");
       const headers = ["ID,Token,Status,Used By,Created At"];
       const rows = filteredTokens.map(t => `${t.id},${t.token},${t.status},${t.usedByEmail || 'N/A'},${new Date(t.createdAt).toLocaleDateString()}`);
       const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
       downloadCSV(csvContent, "kore_tokens_export.csv");
+      showFeedback('success', "Token registry exported successfully.");
     }
   };
 
@@ -138,7 +149,6 @@ export default function AdminPanelPage() {
     document.body.removeChild(link);
   };
 
-  // Token Handlers
   const handleGenerateToken = async () => {
     setIsGenerating(true);
     setGeneratedToken("Generating...");
@@ -164,7 +174,7 @@ export default function AdminPanelPage() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert("Copied to clipboard!");
+    showFeedback('success', "Copied to clipboard!");
   };
 
   const shareToWhatsApp = () => {
@@ -174,23 +184,19 @@ export default function AdminPanelPage() {
 
   const shareToEmail = async () => {
     if (!inviteEmail || !generatedToken || generatedToken.includes('Error')) return;
-    
     setIsSendingEmail(true);
     setEmailSuccess(false);
-    
     const result = await sendTokenEmail(inviteEmail, generatedToken);
-    
     setIsSendingEmail(false);
-    
     if (result.success) {
       setEmailSuccess(true);
+      showFeedback('success', "Token successfully sent via email!");
       setTimeout(() => setEmailSuccess(false), 3000); 
     } else {
-      alert("Failed to send email: " + result.error);
+      showFeedback('error', "Failed to send email: " + result.error);
     }
   };
 
-  // NEW: Custom Confirm Handler for Tokens
   const handleDeleteToken = (tokenId: string, tokenString: string) => {
     setConfirmConfig({
       title: "Delete Access Token",
@@ -202,8 +208,9 @@ export default function AdminPanelPage() {
         const result = await deleteToken(tokenId);
         if (result.success) {
           setRealTokens(prev => prev.filter(t => t.id !== tokenId));
+          showFeedback('success', "Access token permanently deleted.");
         } else {
-          alert("Error deleting token: " + result.error);
+          showFeedback('error', "Error deleting token: " + result.error);
         }
         setIsConfirmModalOpen(false);
       }
@@ -211,30 +218,34 @@ export default function AdminPanelPage() {
     setIsConfirmModalOpen(true);
   };
 
-  // User Management Handlers
   const openManageUser = (user: any) => {
     setSelectedUser(user);
     setManageView("actions");
     setNewPassword(""); 
+    setEditForm({
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      role: user.role || 'user',
+      tier: user.tier || 'Basic'
+    });
     setIsUserDrawerOpen(true);
   };
 
   const handleActivateUser = async () => {
     if (!selectedUser) return;
     setIsActivating(true);
-    
     const result = await activatePendingUser(selectedUser.id);
-    
     if (result.status === "Success") {
       setNewPassword(result.temporaryPassword);
       setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'active' } : u));
+      showFeedback('success', "User activated successfully!");
     } else {
-      alert("Error activating user: " + result.error);
+      showFeedback('error', "Error activating user: " + result.error);
     }
     setIsActivating(false);
   };
 
-  // NEW: Custom Confirm Handler for Suspending Users
   const handleDeactivateUser = () => {
     if (!selectedUser) return;
     setConfirmConfig({
@@ -248,8 +259,9 @@ export default function AdminPanelPage() {
         if (result.success) {
           setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, status: 'inactive' } : u));
           setSelectedUser({...selectedUser, status: 'inactive'});
+          showFeedback('success', "User account suspended.");
         } else {
-          alert("Error suspending user: " + result.error);
+          showFeedback('error', "Error suspending user: " + result.error);
         }
         setIsConfirmModalOpen(false);
       }
@@ -257,7 +269,6 @@ export default function AdminPanelPage() {
     setIsConfirmModalOpen(true);
   };
 
-  // NEW: Custom Confirm Handler for Deleting Users
   const handleDeleteUser = () => {
     if (!selectedUser) return;
     setConfirmConfig({
@@ -271,13 +282,32 @@ export default function AdminPanelPage() {
         if (result.success) {
           setRealUsers(prev => prev.filter(u => u.id !== selectedUser.id));
           setIsUserDrawerOpen(false); 
+          showFeedback('success', "User permanently deleted.");
         } else {
-          alert("Error deleting user: " + result.error);
+          showFeedback('error', "Error deleting user: " + result.error);
         }
         setIsConfirmModalOpen(false);
       }
     });
     setIsConfirmModalOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedUser) return;
+    setIsSavingEdit(true);
+
+    const payload = { userId: selectedUser.id, ...editForm };
+    const res = await editUser(payload);
+
+    if (res.success) {
+      setRealUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, ...editForm } : u));
+      setSelectedUser({ ...selectedUser, ...editForm });
+      setManageView("actions"); 
+      showFeedback('success', "User details updated successfully.");
+    } else {
+      showFeedback('error', "Error updating user: " + res.error);
+    }
+    setIsSavingEdit(false);
   };
 
   return (
@@ -338,7 +368,7 @@ export default function AdminPanelPage() {
               key={tab.id}
               onClick={() => {
                 setActiveTab(tab.id as any);
-                setSearchQuery(""); // Reset search on tab switch
+                setSearchQuery(""); 
               }}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${
                 activeTab === tab.id 
@@ -385,26 +415,28 @@ export default function AdminPanelPage() {
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/5">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[800px]">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-black/20 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-white/5">
                     <th className="p-4 font-semibold">User</th>
+                    <th className="p-4 font-semibold hidden md:table-cell">Contact</th>
+                    <th className="p-4 font-semibold hidden lg:table-cell">Role & Tier</th>
                     <th className="p-4 font-semibold">Status</th>
-                    <th className="p-4 font-semibold hidden lg:table-cell">Joined</th>
+                    <th className="p-4 font-semibold hidden xl:table-cell">Joined</th>
                     <th className="p-4 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                   {isLoadingUsers ? (
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-slate-500">
+                      <td colSpan={6} className="p-8 text-center text-slate-500">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
                         Loading user directory...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-slate-500">
+                      <td colSpan={6} className="p-8 text-center text-slate-500">
                         No users found matching your criteria.
                       </td>
                     </tr>
@@ -418,8 +450,18 @@ export default function AdminPanelPage() {
                             </div>
                             <div>
                               <p className="text-sm font-bold text-slate-900 dark:text-white">{user.name}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 md:hidden">{user.email}</p>
                             </div>
+                          </div>
+                        </td>
+                        <td className="p-4 hidden md:table-cell">
+                          <p className="text-sm text-slate-900 dark:text-slate-300">{user.email}</p>
+                          <p className="text-xs text-slate-500">{user.phone || 'No phone'}</p>
+                        </td>
+                        <td className="p-4 hidden lg:table-cell">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold px-2 py-0.5 bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 rounded capitalize">{user.role}</span>
+                            <span className="text-xs font-bold px-2 py-0.5 bg-[var(--color-brand-deep)]/10 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)] rounded">{user.tier}</span>
                           </div>
                         </td>
                         <td className="p-4">
@@ -438,7 +480,7 @@ export default function AdminPanelPage() {
                             </span>
                           )}
                         </td>
-                        <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden lg:table-cell">
+                        <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden xl:table-cell">
                           {new Date(user.createdAt).toLocaleDateString()}
                         </td>
                         <td className="p-4 text-right">
@@ -460,105 +502,105 @@ export default function AdminPanelPage() {
 
         {/* TOKENS TAB */}
         {activeTab === "tokens" && (
-          <div className="p-6 animate-in fade-in">
-            <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
-              <div className="relative w-full md:w-96">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Search by token or email..." 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all"
-                />
-              </div>
-              
-              <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                  <Filter className="w-4 h-4" />
-                </div>
-                <select 
-                  value={tokenStatusFilter}
-                  onChange={(e) => setTokenStatusFilter(e.target.value as any)}
-                  className="pl-9 pr-8 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
-                >
-                  <option value="All">All Tokens</option>
-                  <option value="unused">Unused / Active</option>
-                  <option value="used">Used / Claimed</option>
-                </select>
-              </div>
-            </div>
+           <div className="p-6 animate-in fade-in">
+           <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
+             <div className="relative w-full md:w-96">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+               <input 
+                 type="text" 
+                 placeholder="Search by token or email..." 
+                 value={searchQuery}
+                 onChange={(e) => setSearchQuery(e.target.value)}
+                 className="w-full pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 transition-all"
+               />
+             </div>
+             
+             <div className="relative">
+               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                 <Filter className="w-4 h-4" />
+               </div>
+               <select 
+                 value={tokenStatusFilter}
+                 onChange={(e) => setTokenStatusFilter(e.target.value as any)}
+                 className="pl-9 pr-8 py-2.5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+               >
+                 <option value="All">All Tokens</option>
+                 <option value="unused">Unused / Active</option>
+                 <option value="used">Used / Claimed</option>
+               </select>
+             </div>
+           </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/5">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-black/20 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-white/5">
-                    <th className="p-4 font-semibold">Access Token</th>
-                    <th className="p-4 font-semibold">Status</th>
-                    <th className="p-4 font-semibold hidden lg:table-cell">Claimed By</th>
-                    <th className="p-4 font-semibold hidden md:table-cell">Created</th>
-                    <th className="p-4 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {isLoadingTokens ? (
-                    <tr>
-                      <td colSpan={5} className="p-8 text-center text-slate-500">
-                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                        Loading token registry...
-                      </td>
-                    </tr>
-                  ) : filteredTokens.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="p-8 text-center text-slate-500">
-                        No tokens found matching your criteria.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredTokens.map((token) => (
-                      <tr key={token.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
-                        <td className="p-4">
-                          <div className="flex items-center gap-2">
-                            <Key className="w-4 h-4 text-slate-400" />
-                            <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
-                              {token.token}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          {token.status === 'unused' ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20">
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                              Unused
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-white/10">
-                              Claimed
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden lg:table-cell">
-                          {token.usedByEmail ? token.usedByEmail : <span className="text-slate-400 italic">Not claimed yet</span>}
-                        </td>
-                        <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden md:table-cell">
-                          {new Date(token.createdAt).toLocaleDateString()}
-                        </td>
-                        <td className="p-4 text-right">
-                          <button 
-                            onClick={() => handleDeleteToken(token.id, token.token)}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors inline-flex"
-                            title="Delete Token"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/5">
+             <table className="w-full text-left border-collapse">
+               <thead>
+                 <tr className="bg-slate-50 dark:bg-black/20 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-white/5">
+                   <th className="p-4 font-semibold">Access Token</th>
+                   <th className="p-4 font-semibold">Status</th>
+                   <th className="p-4 font-semibold hidden lg:table-cell">Claimed By</th>
+                   <th className="p-4 font-semibold hidden md:table-cell">Created</th>
+                   <th className="p-4 font-semibold text-right">Actions</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                 {isLoadingTokens ? (
+                   <tr>
+                     <td colSpan={5} className="p-8 text-center text-slate-500">
+                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                       Loading token registry...
+                     </td>
+                   </tr>
+                 ) : filteredTokens.length === 0 ? (
+                   <tr>
+                     <td colSpan={5} className="p-8 text-center text-slate-500">
+                       No tokens found matching your criteria.
+                     </td>
+                   </tr>
+                 ) : (
+                   filteredTokens.map((token) => (
+                     <tr key={token.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors group">
+                       <td className="p-4">
+                         <div className="flex items-center gap-2">
+                           <Key className="w-4 h-4 text-slate-400" />
+                           <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
+                             {token.token}
+                           </span>
+                         </div>
+                       </td>
+                       <td className="p-4">
+                         {token.status === 'unused' ? (
+                           <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20">
+                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                             Unused
+                           </span>
+                         ) : (
+                           <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md border bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-white/10">
+                             Claimed
+                           </span>
+                         )}
+                       </td>
+                       <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden lg:table-cell">
+                         {token.usedByEmail ? token.usedByEmail : <span className="text-slate-400 italic">Not claimed yet</span>}
+                       </td>
+                       <td className="p-4 text-sm text-slate-600 dark:text-slate-300 hidden md:table-cell">
+                         {new Date(token.createdAt).toLocaleDateString()}
+                       </td>
+                       <td className="p-4 text-right">
+                         <button 
+                           onClick={() => handleDeleteToken(token.id, token.token)}
+                           className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors inline-flex"
+                           title="Delete Token"
+                         >
+                           <Trash2 className="w-4 h-4" />
+                         </button>
+                       </td>
+                     </tr>
+                   ))
+                 )}
+               </tbody>
+             </table>
+           </div>
+         </div>
         )}
 
         {/* SYSTEM HEALTH TAB */}
@@ -627,7 +669,6 @@ export default function AdminPanelPage() {
               </button>
             </div>
 
-            {/* EMAIL SHARE UI UX*/}
             <div className="pt-4 mt-2 border-t border-slate-100 dark:border-white/5 space-y-3">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Send via Email</label>
               <div className="flex gap-2">
@@ -668,7 +709,7 @@ export default function AdminPanelPage() {
         }`}
       >
         <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-white/5">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">Manage User</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white">User Administration</h3>
           <button onClick={() => setIsUserDrawerOpen(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -677,7 +718,7 @@ export default function AdminPanelPage() {
         {selectedUser && (
           <div className="flex-1 overflow-y-auto p-6">
             
-            <div className="flex items-center gap-4 pb-6 border-b border-slate-100 dark:border-white/5 mb-6">
+            <div className="flex items-center gap-4 pb-6 mb-6">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-xl font-bold text-slate-600 dark:text-slate-300 shrink-0 uppercase">
                 {selectedUser.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
               </div>
@@ -690,9 +731,24 @@ export default function AdminPanelPage() {
               </div>
             </div>
 
+            {/* TOGGLE TABS */}
+            <div className="flex gap-2 p-1 bg-slate-100 dark:bg-black/20 rounded-lg mb-6">
+              <button 
+                onClick={() => setManageView("actions")}
+                className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${manageView === 'actions' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+              >
+                Access
+              </button>
+              <button 
+                onClick={() => setManageView("edit")}
+                className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${manageView === 'edit' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+              >
+                Edit Details
+              </button>
+            </div>
+
             {manageView === "actions" ? (
               <div className="space-y-4 animate-in slide-in-from-left-4">
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Account Actions</h4>
                 
                 {selectedUser.status === 'inactive' ? (
                    <div className="p-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-xl">
@@ -708,7 +764,6 @@ export default function AdminPanelPage() {
                    <div className="p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl space-y-3">
                       <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">This account is active and verified.</p>
                       
-                      {/* CUSTOM SUSPEND BUTTON */}
                       <button 
                         onClick={handleDeactivateUser}
                         className="w-full py-2.5 border border-amber-200 dark:border-amber-500/30 text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
@@ -747,7 +802,6 @@ export default function AdminPanelPage() {
                   </div>
                 )}
 
-                {/* CUSTOM DELETE BUTTON */}
                 <div className="pt-6 mt-6 border-t border-slate-100 dark:border-white/5">
                   <button 
                     onClick={handleDeleteUser}
@@ -758,36 +812,94 @@ export default function AdminPanelPage() {
                   </button>
                 </div>
               </div>
-            ) : null}
+            ) : (
+              <div className="space-y-4 animate-in slide-in-from-right-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
+                  <input 
+                    type="text" 
+                    value={editForm.name} 
+                    onChange={e => setEditForm({...editForm, name: e.target.value})}
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Address</label>
+                  <input 
+                    type="email" 
+                    value={editForm.email} 
+                    onChange={e => setEditForm({...editForm, email: e.target.value})}
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Phone Number</label>
+                  <input 
+                    type="tel" 
+                    value={editForm.phone} 
+                    onChange={e => setEditForm({...editForm, phone: e.target.value})}
+                    placeholder="e.g. 08123456789"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Role</label>
+                    <select 
+                      value={editForm.role}
+                      onChange={e => setEditForm({...editForm, role: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                    >
+                      <option value="user">User</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tier</label>
+                    <select 
+                      value={editForm.tier}
+                      onChange={e => setEditForm({...editForm, tier: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50"
+                    >
+                      <option value="Basic">Basic</option>
+                      <option value="Pro">Pro</option>
+                      <option value="Enterprise">Enterprise</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    onClick={handleSaveEdit}
+                    disabled={isSavingEdit || !editForm.name || !editForm.email}
+                    className="w-full py-3 bg-[var(--color-brand-deep)] hover:bg-[var(--color-brand-light)] disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 
+                    {isSavingEdit ? "Saving Changes..." : "Save User Details"}
+                  </button>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
       </div>
 
-      {/* --- NEW: CUSTOM CONFIRMATION MODAL --- */}
+      {/* --- CONFIRMATION MODAL --- */}
       {isConfirmModalOpen && confirmConfig && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-          {/* Backdrop */}
           <div 
             className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
             onClick={() => !isConfirming && setIsConfirmModalOpen(false)} 
           />
           
-          {/* Modal Content */}
           <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
             <div className="flex flex-col items-center text-center">
-              
               <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
                 <AlertTriangle className="w-7 h-7" />
               </div>
-              
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                {confirmConfig.title}
-              </h3>
-              
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
-                {confirmConfig.message}
-              </p>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">{confirmConfig.title}</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">{confirmConfig.message}</p>
               
               <div className="flex gap-3 w-full">
                 <button
@@ -797,7 +909,6 @@ export default function AdminPanelPage() {
                 >
                   Cancel
                 </button>
-                
                 <button
                   onClick={async () => {
                     setIsConfirming(true);
@@ -811,12 +922,49 @@ export default function AdminPanelPage() {
                   {isConfirming ? "Processing..." : confirmConfig.actionText}
                 </button>
               </div>
-
             </div>
           </div>
         </div>
       )}
 
+      {/* --- NEW: UNIFIED FEEDBACK MODAL (Success/Error) --- */}
+      {feedbackModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => setFeedbackModal(prev => ({...prev, isOpen: false}))} 
+          />
+          
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 text-center animate-in zoom-in-95 fade-in duration-200">
+            <div className={`w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center ${
+              feedbackModal.type === 'success' 
+                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' 
+                : 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
+            }`}>
+              {feedbackModal.type === 'success' ? <CheckCircle2 className="w-8 h-8" /> : <X className="w-8 h-8" />}
+            </div>
+            
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+              {feedbackModal.type === 'success' ? 'Success' : 'Error'}
+            </h3>
+            
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              {feedbackModal.message}
+            </p>
+            
+            <button
+              onClick={() => setFeedbackModal(prev => ({...prev, isOpen: false}))}
+              className={`w-full py-3 rounded-xl text-sm font-bold transition-colors text-white ${
+                feedbackModal.type === 'success' 
+                  ? 'bg-emerald-500 hover:bg-emerald-600' 
+                  : 'bg-rose-500 hover:bg-rose-600'
+              }`}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
