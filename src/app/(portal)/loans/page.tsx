@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Landmark, Plus, X, Home, Car, CreditCard, Banknote, 
   Calendar, ShieldCheck, TrendingDown, TrendingUp, CheckCircle2, Loader2, 
   Sparkles, AlertTriangle, Eye, EyeOff, Flag, MoreHorizontal, 
   Edit3, Trash2, HeartPulse, Smartphone, GraduationCap, Building2, Users,
-  Zap, Repeat, FileText // <-- NEW ICONS FOR BILLS
+  Zap, Repeat, FileText
 } from "lucide-react";
 
 import { getUserLoans, createLoan, processLoanPayment, getLoanHistory, updateLoan, deleteLoan } from "@/actions/loanActions";
@@ -56,16 +56,54 @@ export default function LoansPage() {
   const [addForm, setAddForm] = useState({
     name: "",
     lender: "",
-    originalAmount: "",
-    currentBalance: "",
+    originalAmount: "", 
+    totalRepayment: "", 
+    totalRemaining: "", 
     apr: "",
-    totalRepayment: "",
     payment: "",
     frequency: "monthly",
     type: "personal",
     currency: "NGN",
     nextDate: ""
   });
+
+  // 🧠 AUTO-CALC 1: Automatically find the True APR based on original terms
+  useEffect(() => {
+    const p = parseFloat(addForm.originalAmount) || 0;
+    const pmt = parseFloat(addForm.payment) || 0;
+    const tr = parseFloat(addForm.totalRepayment) || 0;
+
+    if (p > 0 && pmt > 0 && tr > p) {
+      const n = tr / pmt;
+      const totalInterest = tr - p;
+      const periodsPerYear = addForm.frequency === 'weekly' ? 52 : addForm.frequency === 'yearly' ? 1 : 12;
+      
+      // Approximation formula for APR
+      const approxApr = ((2 * periodsPerYear * totalInterest) / (p * (n + 1))) * 100;
+
+      // Only update if it differs significantly to prevent typing loops
+      if (Math.abs(parseFloat(addForm.apr || "0") - approxApr) > 0.05) {
+           setAddForm(prev => ({ ...prev, apr: approxApr.toFixed(2) }));
+      }
+    }
+  }, [addForm.originalAmount, addForm.payment, addForm.totalRepayment, addForm.frequency]);
+
+  // 🧠 AUTO-CALC 2: Reverse-calculate True Principal based on Bank's Total Remaining
+  const derivedPrincipal = useMemo(() => {
+    const tr = parseFloat(addForm.totalRemaining);
+    const pmt = parseFloat(addForm.payment) || 0;
+    const apr = parseFloat(addForm.apr) || 0;
+
+    if (!tr || tr <= 0 || pmt <= 0 || apr <= 0) return addForm.totalRemaining || "0"; 
+
+    const periodsPerYear = addForm.frequency === 'weekly' ? 52 : addForm.frequency === 'yearly' ? 1 : 12;
+    const r = (apr / 100) / periodsPerYear; 
+    const n = tr / pmt; 
+
+    // Present Value Formula
+    const pv = pmt * ((1 - Math.pow(1 + r, -n)) / r);
+    return pv.toFixed(2);
+  }, [addForm.totalRemaining, addForm.payment, addForm.apr, addForm.frequency]);
 
   useEffect(() => {
     if (userId) {
@@ -101,7 +139,8 @@ export default function LoansPage() {
       setHistory(hist);
   };
 
-  const formatMoney = (amount: number) => Number(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const formatMoney = (amount: number) => Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  
   const getCurrencySymbol = (code: string) => {
     if (code === "NGN") return "₦";
     if (code === "GBP") return "£";
@@ -122,7 +161,6 @@ export default function LoansPage() {
     setIsConfirmModalOpen(true);
   };
 
-  // EXPANDED: Now handles bills too!
   const getLoanIcon = (type: string) => {
       switch(type) {
           case 'mortgage': 
@@ -140,36 +178,6 @@ export default function LoansPage() {
           case 'taxes': return { Icon: FileText, color: "text-slate-500", bg: "bg-slate-500/10", fill: "bg-slate-500" };
           default: return { Icon: Landmark, color: "text-amber-500", bg: "bg-amber-500/10", fill: "bg-amber-500" };
       }
-  };
-
-  const handleAprBlur = () => {
-    const p = parseFloat(addForm.currentBalance) || parseFloat(addForm.originalAmount) || 0;
-    const pmt = parseFloat(addForm.payment) || 0;
-    const r_apr = parseFloat(addForm.apr) || 0;
-    
-    if (p > 0 && pmt > 0 && r_apr > 0) {
-        const periodsPerYear = addForm.frequency === 'weekly' ? 52 : addForm.frequency === 'yearly' ? 1 : 12;
-        const r = (r_apr / 100) / periodsPerYear;
-        if (pmt > p * r) {
-            const n = -Math.log(1 - (p * r) / pmt) / Math.log(1 + r);
-            const tr = n * pmt;
-            setAddForm(prev => ({ ...prev, totalRepayment: tr.toFixed(2) }));
-        }
-    }
-  };
-
-  const handleTotalRepayBlur = () => {
-    const p = parseFloat(addForm.currentBalance) || parseFloat(addForm.originalAmount) || 0;
-    const pmt = parseFloat(addForm.payment) || 0;
-    const tr = parseFloat(addForm.totalRepayment) || 0;
-
-    if (p > 0 && pmt > 0 && tr > p) {
-        const n = tr / pmt;
-        const totalInterest = tr - p;
-        const periodsPerYear = addForm.frequency === 'weekly' ? 52 : addForm.frequency === 'yearly' ? 1 : 12;
-        const approxApr = ((2 * periodsPerYear * totalInterest) / (p * (n + 1))) * 100;
-        setAddForm(prev => ({ ...prev, apr: approxApr.toFixed(2) }));
-    }
   };
 
   const calculateOverview = () => {
@@ -200,8 +208,13 @@ export default function LoansPage() {
           return usdVal;
       };
 
-      const totalPaid = loans.reduce((acc, l) => acc + (parseFloat(l.originalAmount) - parseFloat(l.currentBalance)), 0);
-      const totalOriginal = loans.reduce((acc, l) => acc + parseFloat(l.originalAmount), 0);
+      // 🛡️ THE FIX: Prevent negative progress by using Math.max
+      const totalPaid = loans.reduce((acc, l) => {
+          const original = parseFloat(l.originalAmount) || 0;
+          const current = parseFloat(l.currentBalance) || 0;
+          return acc + Math.max(0, original - current);
+      }, 0);
+      const totalOriginal = loans.reduce((acc, l) => acc + (parseFloat(l.originalAmount) || 0), 0);
       const progress = totalOriginal > 0 ? ((totalPaid / totalOriginal) * 100).toFixed(1) : "0.0";
 
       return {
@@ -212,11 +225,10 @@ export default function LoansPage() {
   };
   const overviewData = calculateOverview();
 
-  const getPayoffDetails = (balance: number|string, payment: number|string, apr: number|string, totalRepay: number|string, freq: string, startDateStr: string) => {
+  const getPayoffDetails = (balance: number|string, payment: number|string, apr: number|string, freq: string, startDateStr: string) => {
     const p = parseFloat(balance as string) || 0;
     const pmt = parseFloat(payment as string) || 0;
     const r_apr = parseFloat(apr as string) || 0;
-    const tr = parseFloat(totalRepay as string) || 0;
 
     if (p <= 0 || pmt <= 0) return null;
 
@@ -225,10 +237,7 @@ export default function LoansPage() {
     const periodsPerYear = freq === 'weekly' ? 52 : freq === 'yearly' ? 1 : 12;
     let warningMsg = "";
 
-    if (tr > p) {
-      n = Math.ceil(tr / pmt);
-      totalInterest = Math.max(0, tr - p);
-    } else if (r_apr > 0) {
+    if (r_apr > 0) {
       const r = (r_apr / 100) / periodsPerYear;
       if (pmt <= p * r) {
         warningMsg = "Payment is too small to cover the interest!";
@@ -254,15 +263,29 @@ export default function LoansPage() {
     };
   };
 
-  const smartInsight = getPayoffDetails(addForm.currentBalance || addForm.originalAmount, addForm.payment, addForm.apr, addForm.totalRepayment, addForm.frequency, addForm.nextDate);
+  const smartInsight = getPayoffDetails(derivedPrincipal, addForm.payment, addForm.apr, addForm.frequency, addForm.nextDate);
 
-  // HELPER: Determine if type is a recurring bill
   const isBillType = (type: string) => ['rent', 'utilities', 'subscription', 'insurance', 'taxes'].includes(type);
+
+  // Helper to reverse-engineer totalRemaining for the Edit Drawer
+  const calculateTotalRemaining = (pvStr: string, pmtStr: string, aprStr: string, freq: string) => {
+    const pv = parseFloat(pvStr) || 0;
+    const pmt = parseFloat(pmtStr) || 0;
+    const apr = parseFloat(aprStr) || 0;
+    if (pv <= 0 || pmt <= 0 || apr <= 0) return pvStr || "";
+    
+    const periodsPerYear = freq === 'weekly' ? 52 : freq === 'yearly' ? 1 : 12;
+    const r = (apr / 100) / periodsPerYear;
+    if (pmt <= pv * r) return pvStr || ""; 
+    
+    const n = -Math.log(1 - (pv * r) / pmt) / Math.log(1 + r);
+    return (n * pmt).toFixed(2);
+  };
 
   const openAddDrawer = () => {
     setDrawerMode("add");
     setSelectedLoan(null);
-    setAddForm({ name: "", lender: "", originalAmount: "0", currentBalance: "0", apr: "", totalRepayment: "", payment: "", frequency: "monthly", type: "personal", currency: "NGN", nextDate: "" });
+    setAddForm({ name: "", lender: "", originalAmount: "", totalRepayment: "", totalRemaining: "", apr: "", payment: "", frequency: "monthly", type: "personal", currency: "NGN", nextDate: "" });
     setIsDrawerOpen(true);
   };
 
@@ -273,9 +296,9 @@ export default function LoansPage() {
         name: loan.name, 
         lender: loan.lender || "", 
         originalAmount: loan.originalAmount, 
-        currentBalance: loan.currentBalance, 
+        totalRepayment: loan.totalRepayment || "",
+        totalRemaining: calculateTotalRemaining(loan.currentBalance, loan.payment, loan.apr, loan.frequency), 
         apr: loan.apr, 
-        totalRepayment: loan.totalRepayment || "", 
         payment: loan.payment, 
         frequency: loan.frequency, 
         type: loan.type, 
@@ -295,22 +318,23 @@ export default function LoansPage() {
   };
 
   const handleSaveLoan = async () => {
-      // For bills, original amount might be 0, which is fine. Just need name and payment.
       if (!addForm.name || !addForm.payment) {
           return showAlert("Missing Information", "Please fill in the Name and Payment fields.");
       }
       setIsSubmitting(true);
       
-      // Ensure defaults for DB if empty
+      const isAdd = drawerMode === "add";
+
       const payload = {
         ...addForm,
         userId,
-        originalAmount: addForm.originalAmount || "0",
-        currentBalance: addForm.currentBalance || "0"
+        originalAmount: addForm.originalAmount || derivedPrincipal,
+        currentBalance: derivedPrincipal, 
+        totalRepayment: addForm.totalRepayment || "0" 
       };
 
       let result;
-      if (drawerMode === "add") {
+      if (isAdd) {
         result = await createLoan(payload);
       } else {
         result = await updateLoan({ ...payload, loanId: selectedLoan.id });
@@ -319,7 +343,7 @@ export default function LoansPage() {
       if (result.success) {
           await loadData();
           setIsDrawerOpen(false);
-          showAlert("Success", `Obligation successfully ${drawerMode === 'add' ? 'logged' : 'updated'}.`, "success");
+          showAlert("Success", `Obligation successfully ${isAdd ? 'logged' : 'updated'}.`, "success");
       } else {
           showAlert("Action Failed", result.error);
       }
@@ -419,7 +443,6 @@ export default function LoansPage() {
                     </button>
                   </div>
                   
-
                   <div className="flex bg-slate-200/50 dark:bg-white/5 p-1 rounded-lg shadow-inner border border-black/5 dark:border-white/5">
                     {(["NGN", "GBP", "USD"] as const).map((cur) => (
                       <button
@@ -441,17 +464,15 @@ export default function LoansPage() {
                   {showAmounts ? overviewData.total : "••••••"}
                 </h2>
 
-                {/* LIVE MARKET RATES INDICATOR */}
                 {liveRates && (
                   <div className="flex items-center gap-4 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-4 bg-emerald-50 dark:bg-emerald-500/10 w-max px-2.5 py-1 rounded-md">
                     <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3"/> $1 = ₦{formatMoney(liveRates.NGN)}</span>
                     <span className="flex items-center gap-1">£1 = ₦{formatMoney(liveRates.NGN / liveRates.GBP)}</span>
                   </div>
                 )}
+              </div>
 
-                </div>
-
-                <div className="flex flex-col gap-3 relative z-20">
+              <div className="flex flex-col gap-3 relative z-20">
                 <div className="flex items-center gap-2 text-rose-700 bg-rose-100 dark:text-rose-400 dark:bg-[#3D0A14]/90 backdrop-blur-md px-3 py-2 rounded-xl shadow-sm border border-rose-200 dark:border-rose-500/20">
                   <Calendar className="w-5 h-5" />
                   <div>
@@ -505,11 +526,10 @@ export default function LoansPage() {
               </button>
             </div>
         ) : (
-          /* ACTIVE OBLIGATIONS GRID */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {loans.map((loan) => {
-              const original = parseFloat(loan.originalAmount);
-              const current = parseFloat(loan.currentBalance);
+              const original = parseFloat(loan.originalAmount) || 0;
+              const current = parseFloat(loan.currentBalance) || 0;
               const paidAmount = Math.max(0, original - current);
               const progressPercent = original > 0 ? Math.max(0, Math.min(100, (paidAmount / original) * 100)) : 0;
               const freqSuffix = loan.frequency === "weekly" ? "/wk" : loan.frequency === "yearly" ? "/yr" : "/mo";
@@ -517,7 +537,7 @@ export default function LoansPage() {
               const sym = getCurrencySymbol(loan.currency);
               const isBill = isBillType(loan.type);
               
-              const cardInsight = getPayoffDetails(loan.currentBalance, loan.payment, loan.apr, loan.totalRepayment, loan.frequency, loan.nextDate);
+              const cardInsight = getPayoffDetails(loan.currentBalance, loan.payment, loan.apr, loan.frequency, loan.nextDate);
 
               return (
                 <div key={loan.id} className="glass-panel p-6 flex flex-col group relative overflow-hidden">
@@ -560,7 +580,6 @@ export default function LoansPage() {
                     </div>
                   </div>
 
-                  {/* SMART LAYOUT: Show Balance for Loans, Show "Recurring" badge for Bills */}
                   {!isBill ? (
                     <>
                       <div className="flex justify-between items-end mb-4">
@@ -571,7 +590,7 @@ export default function LoansPage() {
                           </h4>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Original</p>
+                          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Starting Balance</p>
                           <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                             {showAmounts ? `${sym}${formatMoney(original)}` : "••••••"}
                           </p>
@@ -634,10 +653,6 @@ export default function LoansPage() {
 
       </div>
 
-      {/* ========================================= */}
-      {/* DRAWER & MODALS OUTSIDE ANIMATE-IN FIX    */}
-      {/* ========================================= */}
-      
       {isDrawerOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-[60] animate-in fade-in duration-300"
@@ -687,7 +702,7 @@ export default function LoansPage() {
             <div className="animate-in fade-in space-y-6">
               {!isBillType(selectedLoan.type) && (
                 <div className={`p-6 rounded-2xl ${getLoanIcon(selectedLoan.type).bg} ${getLoanIcon(selectedLoan.type).color} text-center`}>
-                  <h4 className="font-bold text-lg mb-1">Current Balance</h4>
+                  <h4 className="font-bold text-lg mb-1">Current Payoff Balance</h4>
                   <p className="text-3xl font-bold">{getCurrencySymbol(selectedLoan.currency)}{formatMoney(selectedLoan.currentBalance)}</p>
                 </div>
               )}
@@ -742,14 +757,8 @@ export default function LoansPage() {
           {(drawerMode === "add" || drawerMode === "edit") && (
             <div className="animate-in fade-in space-y-5">
               
-              {!isBillType(addForm.type) && smartInsight && (
-                <div className={`p-4 rounded-xl border ${smartInsight.warning ? 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20' : 'bg-[var(--color-brand-deep)]/5 dark:bg-[var(--color-brand-deep)]/10 border-[var(--color-brand-deep)]/20'}`}>
-                  {smartInsight.warning ? (
-                    <div className="flex items-start gap-3 text-red-600 dark:text-red-400">
-                      <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                      <p className="text-sm font-bold">{smartInsight.warning}</p>
-                    </div>
-                  ) : (
+              {!isBillType(addForm.type) && smartInsight && !smartInsight.warning && (
+                <div className="p-4 rounded-xl border bg-[var(--color-brand-deep)]/5 dark:bg-[var(--color-brand-deep)]/10 border-[var(--color-brand-deep)]/20">
                     <div className="flex items-start gap-3 text-[var(--color-brand-deep)] dark:text-[var(--color-brand-light)]">
                       <Sparkles className="w-5 h-5 shrink-0 mt-0.5" />
                       <div>
@@ -760,7 +769,6 @@ export default function LoansPage() {
                         </p>
                       </div>
                     </div>
-                  )}
                 </div>
               )}
 
@@ -798,57 +806,26 @@ export default function LoansPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Currency</label>
-                <div className="flex bg-slate-100 dark:bg-black/20 p-1 rounded-xl border border-slate-200 dark:border-white/10">
-                  {["NGN", "GBP", "USD"].map((cur) => (
-                    <button
-                      key={cur}
-                      onClick={() => setAddForm({...addForm, currency: cur})}
-                      disabled={isSubmitting}
-                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all disabled:opacity-50 ${
-                        addForm.currency === cur 
-                          ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" 
-                          : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                      }`}
-                    >
-                      {cur}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Only show Balance & APR fields if it's a true Debt, hide for fixed bills */}
-              {!isBillType(addForm.type) && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Original Amount</label>
-                      <input type="number" value={addForm.originalAmount} onChange={(e) => setAddForm({...addForm, originalAmount: e.target.value, currentBalance: drawerMode === 'add' ? e.target.value : addForm.currentBalance})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Current Balance</label>
-                      <input type="number" value={addForm.currentBalance} onChange={(e) => setAddForm({...addForm, currentBalance: e.target.value})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Interest Rate (APR)</label>
-                      <div className="relative">
-                        <input type="number" value={addForm.apr} onBlur={handleAprBlur} onChange={(e) => setAddForm({...addForm, apr: e.target.value})} disabled={isSubmitting} placeholder="0.0" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-4 pr-8 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">%</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Total Repayment (Opt)</label>
-                      <input type="number" value={addForm.totalRepayment} onBlur={handleTotalRepayBlur} onChange={(e) => setAddForm({...addForm, totalRepayment: e.target.value})} disabled={isSubmitting} placeholder="Auto-calculates" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 text-sm disabled:opacity-50" />
-                    </div>
-                  </div>
-                </>
-              )}
-              
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Currency</label>
+                  <div className="flex bg-slate-100 dark:bg-black/20 p-1 rounded-xl border border-slate-200 dark:border-white/10">
+                    {["NGN", "GBP", "USD"].map((cur) => (
+                      <button
+                        key={cur}
+                        onClick={() => setAddForm({...addForm, currency: cur})}
+                        disabled={isSubmitting}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all disabled:opacity-50 ${
+                          addForm.currency === cur 
+                            ? "bg-white dark:bg-slate-800 text-[var(--color-brand-deep)] shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        {cur}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Frequency</label>
                   <select value={addForm.frequency} onChange={(e) => setAddForm({...addForm, frequency: e.target.value})} disabled={isSubmitting} className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 appearance-none font-medium disabled:opacity-50">
@@ -857,16 +834,80 @@ export default function LoansPage() {
                     <option value="yearly">Yearly</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Payment Amount</label>
-                  <input type="number" value={addForm.payment} onBlur={() => { handleAprBlur(); handleTotalRepayBlur(); }} onChange={(e) => setAddForm({...addForm, payment: e.target.value})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Next Payment Date</label>
-                <input type="date" value={addForm.nextDate} onChange={(e) => setAddForm({...addForm, nextDate: e.target.value})} disabled={isSubmitting} className="w-full min-w-full block appearance-none min-h-[50px] bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
-              </div>
+              {!isBillType(addForm.type) && (
+                <>
+                  <div className="pt-4 mt-2 border-t border-slate-100 dark:border-white/5">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">1. Original Loan Terms</p>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">Amount Borrowed</label>
+                        <input type="number" value={addForm.originalAmount} onChange={(e) => setAddForm({...addForm, originalAmount: e.target.value})} disabled={isSubmitting} placeholder="e.g. 8700" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">Expected Total Repayment</label>
+                        <input type="number" value={addForm.totalRepayment} onChange={(e) => setAddForm({...addForm, totalRepayment: e.target.value})} disabled={isSubmitting} placeholder="e.g. 12481" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">Payment Amount</label>
+                        <input type="number" value={addForm.payment} onChange={(e) => setAddForm({...addForm, payment: e.target.value})} disabled={isSubmitting} placeholder="e.g. 209" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">Interest Rate (APR)</label>
+                        <div className="relative">
+                          <input type="number" value={addForm.apr} onChange={(e) => setAddForm({...addForm, apr: e.target.value})} disabled={isSubmitting} placeholder="Auto-calculates" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl pl-4 pr-8 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 mt-2 border-t border-slate-100 dark:border-white/5">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">2. Current Status (From Bank App)</p>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">Total Remaining</label>
+                        <input type="number" value={addForm.totalRemaining} onChange={(e) => setAddForm({...addForm, totalRemaining: e.target.value})} disabled={isSubmitting} placeholder="e.g. 11227.90" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">Next Payment Date</label>
+                        <input type="date" value={addForm.nextDate} onChange={(e) => setAddForm({...addForm, nextDate: e.target.value})} disabled={isSubmitting} className="w-full min-w-full block appearance-none min-h-[46px] bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AUTO-CALCULATED PRINCIPAL BADGE */}
+                  {parseFloat(addForm.totalRemaining) > 0 && parseFloat(addForm.payment) > 0 && parseFloat(addForm.apr) > 0 && (
+                    <div className="bg-[var(--color-brand-deep)]/10 border border-[var(--color-brand-deep)]/20 p-4 rounded-xl flex items-center justify-between">
+                       <div className="flex flex-col">
+                         <span className="text-xs font-bold text-[var(--color-brand-deep)] uppercase tracking-wider">True Payoff Principal</span>
+                         <span className="text-xs text-slate-500">Auto-calculated for Net Worth</span>
+                       </div>
+                       <span className="text-xl font-bold text-[var(--color-brand-deep)]">
+                         {getCurrencySymbol(addForm.currency)}{formatMoney(parseFloat(derivedPrincipal))}
+                       </span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Simplified Layout if it IS just a Bill (Rent, Utilities, etc.) */}
+              {isBillType(addForm.type) && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Payment Amount</label>
+                    <input type="number" value={addForm.payment} onChange={(e) => setAddForm({...addForm, payment: e.target.value})} disabled={isSubmitting} placeholder="0.00" className="w-full bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">Next Payment Date</label>
+                    <input type="date" value={addForm.nextDate} onChange={(e) => setAddForm({...addForm, nextDate: e.target.value})} disabled={isSubmitting} className="w-full min-w-full block appearance-none min-h-[50px] bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-deep)]/50 disabled:opacity-50" />
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
 
