@@ -91,7 +91,6 @@ export default function GoalsPage() {
 
   const formatMoney = (amount: number) => Number(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   
-  // FIX: Re-added the missing currency symbol helper for the Funding dropdown
   const getCurrencySymbol = (code: string) => {
     if (code === "NGN") return "₦";
     if (code === "GBP") return "£";
@@ -111,7 +110,6 @@ export default function GoalsPage() {
     setIsConfirmModalOpen(true);
   };
 
-  // EXPANDED CATEGORY MAPPING
   const getGoalIcon = (category: string) => {
     switch(category) {
         case 'Safety': return { Icon: PiggyBank, color: "text-emerald-500", bg: "bg-emerald-500/10", fill: "bg-emerald-500" };
@@ -187,8 +185,9 @@ export default function GoalsPage() {
     setIsSubmitting(false);
   };
 
-  const handleDeleteGoal = () => {
-    if (!selectedGoal) return;
+  // THE FIX: Accept goalId directly to bypass state batching
+  const handleDeleteGoal = (goalToDelete: any) => {
+    if (!goalToDelete) return;
     setConfirmConfig({
       title: "Delete Milestone",
       message: `Are you sure you want to permanently delete this milestone?`,
@@ -197,7 +196,7 @@ export default function GoalsPage() {
       iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
       isAlertOnly: false,
       onConfirm: async () => {
-        const result = await deleteGoal(selectedGoal.id, userId);
+        const result = await deleteGoal(goalToDelete.id, userId);
         if (result.success) {
           await loadData(); 
           setIsDrawerOpen(false);
@@ -384,7 +383,8 @@ export default function GoalsPage() {
                           <button onClick={() => { openEditDrawer(goal); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                             <Edit3 className="w-4 h-4 text-slate-400" /> Edit Milestone
                           </button>
-                          <button onClick={() => { setSelectedGoal(goal); handleDeleteGoal(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                          {/* THE FIX: Accept goal directly here too */}
+                          <button onClick={() => { handleDeleteGoal(goal); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
                             <Trash2 className="w-4 h-4" /> Delete Milestone
                           </button>
                         </div>
