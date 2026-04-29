@@ -350,8 +350,9 @@ export default function LoansPage() {
       setIsSubmitting(false);
   };
 
-  const handleDeleteLoan = () => {
-    if (!selectedLoan) return;
+  // FIXED: Accepts the loan directly to bypass the React double-click state bug
+  const handleDeleteLoan = (loanToDelete: any) => {
+    if (!loanToDelete) return;
     setConfirmConfig({
       title: "Delete Obligation",
       message: `Are you sure you want to permanently delete this? This will remove it from your tracker.`,
@@ -360,7 +361,7 @@ export default function LoansPage() {
       iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
       isAlertOnly: false,
       onConfirm: async () => {
-        const result = await deleteLoan(selectedLoan.id, userId);
+        const result = await deleteLoan(loanToDelete.id, userId);
         if (result.success) {
           await loadData(); 
           setIsDrawerOpen(false);
@@ -558,7 +559,7 @@ export default function LoansPage() {
                           <button onClick={() => { openEditDrawer(loan); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                             <Edit3 className="w-4 h-4 text-slate-400" /> Edit Details
                           </button>
-                          <button onClick={() => { setSelectedLoan(loan); handleDeleteLoan(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                          <button onClick={() => { handleDeleteLoan(loan); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
                             <Trash2 className="w-4 h-4" /> Delete Obligation
                           </button>
                         </div>

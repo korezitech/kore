@@ -4,11 +4,10 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { 
   Landmark, Plus, X, Wallet, CreditCard, Building, TrendingUp, 
-  MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle, Pin, PinOff, Edit3, RefreshCw, Link as LinkIcon 
+  MoreHorizontal, Trash2, Eye, EyeOff, Loader2, AlertTriangle, Pin, PinOff, Edit3, RefreshCw, Link as LinkIcon, CheckCircle2 
 } from "lucide-react";
 import { getUserAccounts, createAccount, updateAccount, deleteAccount, togglePinAccount, syncLiveAccount } from "@/actions/accountActions";
 
-// Custom type for our Confirm Modal
 type ConfirmConfig = {
   title: string;
   message: string;
@@ -16,6 +15,13 @@ type ConfirmConfig = {
   actionColor: string;
   iconColor: string;
   onConfirm: () => Promise<void>;
+};
+
+// NEW: Unified Feedback Modal Type
+type FeedbackConfig = {
+  isOpen: boolean;
+  type: 'success' | 'error';
+  message: string;
 };
 
 export default function AccountsPage() {
@@ -32,10 +38,11 @@ export default function AccountsPage() {
   const [showAmounts, setShowAmounts] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  // Custom Confirm Modal State
+  // Modal States
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackConfig>({ isOpen: false, type: 'success', message: '' });
 
   // Drawer visibility and mode state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -54,6 +61,11 @@ export default function AccountsPage() {
   const [syncUrl, setSyncUrl] = useState("");
   const [syncKey, setSyncKey] = useState("");
 
+  // Helper to trigger the beautiful success/error modal
+  const showFeedback = (type: 'success' | 'error', message: string) => {
+    setFeedbackModal({ isOpen: true, type, message });
+  };
+
   useEffect(() => {
     if (userId) {
       loadAccounts();
@@ -69,7 +81,6 @@ export default function AccountsPage() {
     setIsFetching(false);
   };
 
-  // Helpers
   const formatBalance = (val: string | number) => Number(val).toLocaleString('en-US', { minimumFractionDigits: 2 });
   const getCurrencySymbol = (code: string) => {
     if (code === "NGN") return "₦";
@@ -107,9 +118,9 @@ export default function AccountsPage() {
   };
 
   const handleSaveAccount = async () => {
-    if (!accountName || !accountNumber) return alert("Please fill in Account Name and Number.");
-    if (!isLiveSync && !balance) return alert("Please provide a starting balance.");
-    if (isLiveSync && (!syncUrl || !syncKey)) return alert("Please provide the API URL and Secret Key for Live Sync.");
+    if (!accountName || !accountNumber) return showFeedback('error', "Please fill in Account Name and Number.");
+    if (!isLiveSync && !balance) return showFeedback('error', "Please provide a starting balance.");
+    if (isLiveSync && (!syncUrl || !syncKey)) return showFeedback('error', "Please provide the API URL and Secret Key for Live Sync.");
     
     setIsSubmitting(true);
     
@@ -129,51 +140,46 @@ export default function AccountsPage() {
       if (result.success) {
         await loadAccounts(); 
         setIsDrawerOpen(false);
-      } else alert(result.error);
+        showFeedback('success', "Account created successfully.");
+      } else showFeedback('error', result.error);
     } else {
       const result = await updateAccount({ ...accountData, accountId: activeAccountId });
       if (result.success) {
         await loadAccounts(); 
         setIsDrawerOpen(false);
-      } else alert(result.error);
+        showFeedback('success', "Account details updated.");
+      } else showFeedback('error', result.error);
     }
     
     setIsSubmitting(false);
   };
 
-  // NEW: Pin/Unpin Handler
   const handleTogglePin = async (accountId: string, currentPinStatus: number) => {
     const isPinned = currentPinStatus ? false : true;
-    
-    // Optimistic UI update (makes it feel instantly fast!)
     setAccounts(accounts.map(acc => acc.id === accountId ? { ...acc, isPinned: isPinned ? 1 : 0 } : acc));
     
-    // Tell the database
     const result = await togglePinAccount(accountId, userId, isPinned);
     if (!result.success) {
-      await loadAccounts(); // Revert if it fails
-      alert(result.error);
+      await loadAccounts(); 
+      showFeedback('error', result.error);
     }
   };
 
-  // TRIGGER ERP SYNC
   const handleTriggerSync = async (accountId: string) => {
     setSyncingAccountId(accountId);
     const result = await syncLiveAccount(accountId, userId);
     if (result.success) {
-        // Update local state immediately so they see the new number
         setAccounts(accounts.map(acc => acc.id === accountId ? { ...acc, balance: result.newBalance } : acc));
-        // Optional: Replace alert with toast notification later
-        // alert("Account synchronized successfully!"); 
+        showFeedback('success', "Account synchronized with external ERP.");
     } else {
-        alert("Sync Failed: " + result.error);
+        showFeedback('error', "Sync Failed: " + result.error);
     }
     setSyncingAccountId(null);
   };
 
-  // Custom Confirm Handler for Deleting Accounts
-  const handleDeleteAccount = () => {
-    if (!activeAccountId) return;
+  // THE FIX: Explicitly pass the ID so we don't rely on state closures
+  const handleDeleteAccount = (idToDelete: string) => {
+    if (!idToDelete) return;
     setConfirmConfig({
       title: "Delete Account",
       message: `Are you sure you want to permanently delete this account? This will remove all associated financial records and cannot be undone.`,
@@ -181,11 +187,14 @@ export default function AccountsPage() {
       actionColor: "bg-rose-600 hover:bg-rose-700",
       iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
       onConfirm: async () => {
-        const result = await deleteAccount(activeAccountId, userId);
-        if (result.success) {
+        const result = await deleteAccount(idToDelete, userId);
+        if (result && result.success) {
           await loadAccounts(); 
           setIsDrawerOpen(false);
-        } else alert("Error deleting account: " + result.error);
+          showFeedback('success', "Account permanently deleted.");
+        } else {
+          showFeedback('error', "Error deleting account: " + (result?.error || "Unknown Error"));
+        }
         setIsConfirmModalOpen(false);
       }
     });
@@ -275,6 +284,10 @@ export default function AccountsPage() {
                               {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
                               {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
                             </button>
+                            {/* THE FIX: Delete available right from the dashboard dropdown */}
+                            <button onClick={() => { handleDeleteAccount(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                              <Trash2 className="w-4 h-4" /> Delete Account
+                            </button>
                           </div>
                         </>
                       )}
@@ -342,6 +355,9 @@ export default function AccountsPage() {
                             <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                               {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
                               {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
+                            </button>
+                            <button onClick={() => { handleDeleteAccount(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                              <Trash2 className="w-4 h-4" /> Delete Account
                             </button>
                           </div>
                         </>
@@ -436,6 +452,9 @@ export default function AccountsPage() {
                                   {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
                                   {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
                                 </button>
+                                <button onClick={() => { handleDeleteAccount(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                                  <Trash2 className="w-4 h-4" /> Delete Account
+                                </button>
                               </div>
                             </>
                           )}
@@ -505,6 +524,9 @@ export default function AccountsPage() {
                                 <button onClick={() => { handleTogglePin(acc.id, acc.isPinned); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                                   {acc.isPinned ? <PinOff className="w-4 h-4 text-slate-400" /> : <Pin className="w-4 h-4 text-[var(--color-brand-deep)]" />} 
                                   {acc.isPinned ? "Unpin Account" : "Pin to Dashboard"}
+                                </button>
+                                <button onClick={() => { handleDeleteAccount(acc.id); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                                  <Trash2 className="w-4 h-4" /> Delete Account
                                 </button>
                               </div>
                             </>
@@ -621,7 +643,7 @@ export default function AccountsPage() {
 
         <div className="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 flex gap-3 items-center">
           {drawerMode === "edit" && (
-            <button onClick={handleDeleteAccount} disabled={isSubmitting} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors shrink-0 disabled:opacity-50">
+            <button onClick={() => handleDeleteAccount(activeAccountId as string)} disabled={isSubmitting} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors shrink-0 disabled:opacity-50">
               {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
             </button>
           )}
@@ -632,6 +654,87 @@ export default function AccountsPage() {
           </button>
         </div>
       </div>
+
+      {/* CONFIRMATION MODAL */}
+      {isConfirmModalOpen && confirmConfig && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => !isConfirming && setIsConfirmModalOpen(false)} 
+          />
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 animate-in zoom-in-95 fade-in duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className={`w-14 h-14 rounded-full mb-4 flex items-center justify-center ${confirmConfig.iconColor}`}>
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">{confirmConfig.title}</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">{confirmConfig.message}</p>
+              
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setIsConfirmModalOpen(false)}
+                  disabled={isConfirming}
+                  className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsConfirming(true);
+                    await confirmConfig.onConfirm();
+                    setIsConfirming(false);
+                  }}
+                  disabled={isConfirming}
+                  className={`flex-1 py-3 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${confirmConfig.actionColor}`}
+                >
+                  {isConfirming && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isConfirming ? "Processing..." : confirmConfig.actionText}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UNIFIED FEEDBACK MODAL (Success/Error) */}
+      {feedbackModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => setFeedbackModal(prev => ({...prev, isOpen: false}))} 
+          />
+          
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl w-full max-w-sm p-6 text-center animate-in zoom-in-95 fade-in duration-200">
+            <div className={`w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center ${
+              feedbackModal.type === 'success' 
+                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' 
+                : 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
+            }`}>
+              {feedbackModal.type === 'success' ? <CheckCircle2 className="w-8 h-8" /> : <X className="w-8 h-8" />}
+            </div>
+            
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+              {feedbackModal.type === 'success' ? 'Success' : 'Error'}
+            </h3>
+            
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              {feedbackModal.message}
+            </p>
+            
+            <button
+              onClick={() => setFeedbackModal(prev => ({...prev, isOpen: false}))}
+              className={`w-full py-3 rounded-xl text-sm font-bold transition-colors text-white ${
+                feedbackModal.type === 'success' 
+                  ? 'bg-emerald-500 hover:bg-emerald-600' 
+                  : 'bg-rose-500 hover:bg-rose-600'
+              }`}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
