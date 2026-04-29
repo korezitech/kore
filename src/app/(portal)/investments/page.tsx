@@ -25,7 +25,7 @@ export default function InvestmentsPage() {
 
   const [showAmounts, setShowAmounts] = useState(true);
   const [portfolioView, setPortfolioView] = useState<"USD" | "GBP" | "NGN">("USD");
-  const [visibleCount, setVisibleCount] = useState(10); // NEW: Pagination state
+  const [visibleCount, setVisibleCount] = useState(10); 
   
   const [investments, setInvestments] = useState<any[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, { price: number, change24h: number }>>({});
@@ -68,7 +68,7 @@ export default function InvestmentsPage() {
     }
   }, [userId, status]);
 
-  // NEW: Reset pagination to 10 whenever you switch between USD, GBP, or NGN tabs
+  // Reset pagination to 10 whenever you switch tabs
   useEffect(() => {
     setVisibleCount(10);
   }, [portfolioView]);
@@ -116,7 +116,6 @@ export default function InvestmentsPage() {
       return LineChart;
   };
 
-  // UPDATED: Now sorts alphabetically by Name
   const activeHoldings = investments
     .filter(inv => inv.region === portfolioView)
     .map(inv => {
@@ -132,7 +131,6 @@ export default function InvestmentsPage() {
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  // NEW: Slice the array based on visibleCount for the table rendering
   const displayedHoldings = activeHoldings.slice(0, visibleCount);
 
   let currencySymbol = "$";
@@ -216,7 +214,7 @@ export default function InvestmentsPage() {
           units: tradeForm.units,
           pricePerUnit: tradeForm.pricePerUnit,
           brokerFees: tradeForm.brokerFees || 0,
-          tradeDate: new Date().toISOString().split('T')[0] // Sends today's date
+          tradeDate: new Date().toISOString().split('T')[0]
       });
 
       if (result.success) {
@@ -229,17 +227,18 @@ export default function InvestmentsPage() {
       setIsSubmitting(false);
   };
 
-  const handleDeleteAsset = () => {
-    if (!selectedAsset) return;
+  // THE FIX: Accept assetToDelete directly to bypass state batching
+  const handleDeleteAsset = (assetToDelete: any) => {
+    if (!assetToDelete) return;
     setConfirmConfig({
       title: "Delete Asset",
-      message: `Are you sure you want to remove ${selectedAsset.name} from your portfolio?`,
+      message: `Are you sure you want to remove ${assetToDelete.name} from your portfolio?`,
       actionText: "Delete Asset",
       actionColor: "bg-rose-600 hover:bg-rose-700",
       iconColor: "text-rose-600 bg-rose-50 dark:bg-rose-500/10",
       isAlertOnly: false,
       onConfirm: async () => {
-        const result = await deleteInvestment(selectedAsset.id, userId);
+        const result = await deleteInvestment(assetToDelete.id, userId);
         if (result.success) {
           await loadData(); 
           setIsDrawerOpen(false);
@@ -461,7 +460,8 @@ export default function InvestmentsPage() {
                             <button onClick={() => { openTradeDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
                               <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Log Trade
                             </button>
-                            <button onClick={() => { setSelectedAsset(asset); handleDeleteAsset(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                            {/* THE FIX: Pass asset directly here too */}
+                            <button onClick={() => { handleDeleteAsset(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
                               <Trash2 className="w-4 h-4" /> Delete Asset
                             </button>
                           </div>
@@ -566,7 +566,8 @@ export default function InvestmentsPage() {
                               <button onClick={() => { openTradeDrawer(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border-t border-slate-100 dark:border-white/5">
                                 <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Log Trade
                               </button>
-                              <button onClick={() => { setSelectedAsset(asset); handleDeleteAsset(); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
+                              {/* THE FIX: Pass asset directly here too */}
+                              <button onClick={() => { handleDeleteAsset(asset); setOpenMenuId(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors border-t border-slate-100 dark:border-white/5">
                                 <Trash2 className="w-4 h-4" /> Delete
                               </button>
                             </div>
@@ -579,7 +580,7 @@ export default function InvestmentsPage() {
                 )})}
               </div>
 
-              {/* NEW: Load More Button */}
+              {/* Load More Button */}
               {visibleCount < activeHoldings.length && (
                 <div className="p-4 border-t border-slate-100 dark:border-white/5 flex justify-center">
                   <button 
